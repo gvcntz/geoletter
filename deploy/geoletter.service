@@ -1,0 +1,26 @@
+[Unit]
+Description=GeoLetter (memorial map, Gemma moderation via local Ollama)
+After=network-online.target ollama.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=openbot
+Group=openbot
+WorkingDirectory=/var/lib/openbot/OpenBot/Agents/agent-ddd870f6-d3f5-4e33-beb2-d8ac3f6961d0/geoletter
+EnvironmentFile=/var/lib/openbot/OpenBot/Agents/agent-ddd870f6-d3f5-4e33-beb2-d8ac3f6961d0/geoletter/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning src/server.ts
+Restart=on-failure
+RestartSec=3
+# Keep the web process itself light; the heavy work happens inside Ollama (2 threads per call).
+CPUQuota=50%
+MemoryMax=512M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/lib/openbot/OpenBot/Agents/agent-ddd870f6-d3f5-4e33-beb2-d8ac3f6961d0/geoletter/data
+
+[Install]
+WantedBy=multi-user.target

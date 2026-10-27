@@ -52,12 +52,6 @@
     dateline.append(o.place || '', document.createElement('br'),
       new Intl.DateTimeFormat(o.lang || 'en', { day: 'numeric', month: 'long', year: 'numeric' }).format(o.created_at));
     article.append(dateline);
-    if (o.to) {
-      const to = document.createElement('p');
-      to.className = 'addressee';
-      to.textContent = `For ${o.to}`;
-      article.append(to);
-    }
     const body = document.createElement('div');
     body.className = 'letter-body fading';
     body.id = 'letter-body';

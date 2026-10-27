@@ -349,6 +349,16 @@ export function createApp(db: DB, mailer: MailDriver) {
       return;
     }
 
+    if (path === '/api/recent' && method === 'GET') {
+      const rows = db
+        .prepare(`SELECT * FROM offerings WHERE status = 'approved' ORDER BY created_at DESC LIMIT 6`)
+        .all() as unknown as Offering[];
+      json(res, 200, {
+        offerings: rows.map((o) => ({ id: o.id, kind: o.kind, lat: o.lat, lng: o.lng, place: o.place, created_at: o.created_at, title: offeringTitle(o) })),
+      });
+      return;
+    }
+
     if (path === '/api/offerings' && method === 'POST') {
       await createOffering(req, res);
       return;

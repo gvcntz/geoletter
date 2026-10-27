@@ -73,7 +73,7 @@ select { width: auto; padding: .1em .3em; }
 .map-page { height: 100dvh; overflow: hidden; }
 #map { position: fixed; inset: 0; background: var(--paper-deep); }
 /* Paper tone over an open, label-light basemap. Markers sit on top in the same canvas. */
-#map .maplibregl-canvas { filter: sepia(.38) saturate(.62) contrast(.94) brightness(1.02); }
+#map .maplibregl-canvas { filter: sepia(.16) saturate(.5) contrast(.97); }
 .maplibregl-ctrl-attrib { background: rgba(245, 239, 227, .85) !important; font-family: var(--serif); font-size: 12px; }
 .maplibregl-ctrl-group { background: var(--sheet); border-radius: var(--radius); box-shadow: 0 0 0 1px var(--rule); }
 
@@ -98,6 +98,12 @@ select { width: auto; padding: .1em .3em; }
 .results button { border: 0; width: 100%; text-align: left; padding: .45em 0; }
 .results button:hover { background: none; color: var(--accent); }
 
+#recent { margin-top: 1.8em; }
+#recent h2, #mine h2 { font-size: 1.15rem; }
+#recent li { padding: .45em 0; border-top: 1px solid var(--rule); }
+#recent button { border: 0; padding: 0; text-align: left; width: 100%; }
+#recent button:hover { background: none; color: var(--accent); }
+#recent .where { display: block; font-size: .88rem; color: var(--ink-soft); }
 #mine { margin-top: 1.6em; }
 #mine h2 { font-size: 1.15rem; }
 #mine li { padding: .2em 0; }
@@ -186,7 +192,7 @@ select { width: auto; padding: .1em .3em; }
 }
 
 .sealed { text-align: center; }
-.sealed-line { font-size: 1.4rem; margin-top: .6em; }
+.sealed-line { font-size: 1.4rem; margin-top: .6em; text-wrap: balance; }
 .sealed-sub, .distance { color: var(--ink-soft); }
 .sealed .actions { display: flex; flex-direction: column; align-items: center; gap: .8em; margin-top: 1.4em; }
 .geo-error { color: var(--refused); }
@@ -209,7 +215,7 @@ select { width: auto; padding: .1em .3em; }
   body { font-size: 17px; }
   .panel {
     top: auto; right: 0; width: auto;
-    max-height: 62dvh;
+    max-height: 50dvh;
     border-right: 0; border-top: 1px solid var(--rule);
     box-shadow: 0 -10px 30px -22px rgba(46, 36, 28, .5);
   }

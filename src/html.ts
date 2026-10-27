@@ -131,7 +131,7 @@ ${v.demo ? '<button type="button" class="quiet" id="open-demo">Demo: open as if 
     const kindMark = o.kind === 'candle' ? CANDLE_SVG : o.kind === 'flower' ? MARIGOLD_SVG : '';
     sheet = `<article class="sheet${isLetter ? '' : ' small-offering'}" lang="${esc(lang)}">
 <p class="dateline">${esc(place)}<br>${esc(date)}</p>
-${(isLetter ? o.to_name : title) ? `<p class="addressee">${esc(isLetter ? `For ${o.to_name}` : title)}</p>` : ''}
+${isLetter ? '' : `<p class="addressee">${esc(title)}</p>`}
 ${kindMark}
 ${o.body ? `<div class="letter-body" id="letter-body">${esc(o.body)}</div>` : ''}
 ${o.from_name ? `<p class="signature">${esc(o.from_name)}</p>` : ''}
@@ -146,7 +146,7 @@ ${authorNote(v)}
 ${sheet}
 <footer class="letter-foot">
 ${MARIGOLD_SVG}
-<p>Left at ${esc(place)}${o.locked ? ', sealed to the place' : ''}.</p>
+<p>${isLetter && o.to_name ? `Left for ${esc(o.to_name)} at ${esc(place)}` : `Left at ${esc(place)}`}${o.locked ? ', sealed to the place' : ''}.</p>
 ${isLetter && o.status === 'approved' ? '<p><button type="button" class="link" id="translate" hidden></button></p><p class="translate-state" id="translate-state" hidden></p>' : ''}
 ${o.is_example ? '<p class="example">This is an example offering. The people in it are invented.</p>' : ''}
 </footer>

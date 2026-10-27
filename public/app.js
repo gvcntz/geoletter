@@ -70,6 +70,18 @@
     }
   }
 
+  async function renderRecent() {
+    try {
+      const { offerings } = await api('/api/recent');
+      const ul = $('#recent-list');
+      ul.replaceChildren(...offerings.map((o) => h('li', null, h('button', { type: 'button', onclick: () => {
+        map.flyTo({ center: [o.lng, o.lat], zoom: 15.5, duration: reduceMotion ? 0 : 2400 });
+        openPlace(o.lng, o.lat);
+      } }, o.title, h('span', { class: 'where' }, `${o.place || 'Somewhere'} · ${fmtDate(o.created_at)}`)))));
+      $('#recent').hidden = offerings.length === 0;
+    } catch { /* the map still works without it */ }
+  }
+
   // ---------- panel ----------
   function showIntro() {
     view.hidden = true;
@@ -78,6 +90,7 @@
     panel.classList.remove('tall');
     clearDraftMarker();
     renderMine();
+    renderRecent();
     if (location.hash) history.replaceState(null, '', location.pathname);
   }
 
@@ -96,6 +109,8 @@
     clearDraftMarker();
     const el = h('div', { class: 'draft-marker', 'aria-hidden': 'true' });
     draftMarker = new maplibregl.Marker({ element: el }).setLngLat(lngLat).addTo(map);
+    // On phones the sheet grows and the map shrinks: keep the chosen spot in view.
+    if (innerWidth < 760) setTimeout(() => map.easeTo({ center: lngLat, duration: reduceMotion ? 0 : 600 }), 50);
   }
 
   // ---------- a place on the map ----------
@@ -350,16 +365,16 @@
     map.addLayer({
       id: 'glow', type: 'circle', source: 'offerings', filter: ['!', ['has', 'point_count']],
       paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 1, 7, 14, 15],
-        'circle-color': '#e9b25a', 'circle-blur': 1,
-        'circle-opacity': ['match', ['get', 'kind'], 'candle', 0.55, 0.28],
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 1, 11, 14, 20],
+        'circle-color': '#e3a645', 'circle-blur': 1,
+        'circle-opacity': ['match', ['get', 'kind'], 'candle', 0.7, 0.4],
       },
     });
     map.addLayer({
       id: 'clusters', type: 'circle', source: 'offerings', filter: ['has', 'point_count'],
       paint: {
         'circle-radius': ['step', ['get', 'point_count'], 11, 5, 14, 20, 18],
-        'circle-color': '#fbf7ee', 'circle-stroke-color': '#b47a2a', 'circle-stroke-width': 1.2,
+        'circle-color': '#fbf3e2', 'circle-stroke-color': '#a8691e', 'circle-stroke-width': 1.4,
       },
     });
     map.addLayer({
@@ -370,22 +385,15 @@
     map.addLayer({
       id: 'points', type: 'circle', source: 'offerings', filter: ['!', ['has', 'point_count']],
       paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 1, 3.2, 14, 5.5],
-        'circle-color': ['match', ['get', 'kind'], 'flower', '#d08a22', 'candle', '#f0c060', 'item', '#9c5b3f', '#fbf7ee'],
-        'circle-stroke-color': ['case', ['==', ['get', 'locked'], 1], '#8a8073', '#5a4632'],
-        'circle-stroke-width': ['match', ['get', 'kind'], 'letter', 1.3, 0.6],
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 1, 4.2, 14, 6.5],
+        'circle-color': ['match', ['get', 'kind'], 'flower', '#cf8420', 'candle', '#f2c25a', 'item', '#9c5b3f', '#fbf3e2'],
+        'circle-stroke-color': ['case', ['==', ['get', 'locked'], 1], '#9a8f80', '#4a3a2b'],
+        'circle-stroke-width': ['match', ['get', 'kind'], 'letter', 1.5, 0.8],
       },
     });
 
-    // The candles breathe a little. Nothing else on the map moves.
-    if (!reduceMotion) {
-      let t = 0;
-      setInterval(() => {
-        t += 0.18;
-        const o = 0.5 + Math.sin(t) * 0.06 + Math.sin(t * 2.7) * 0.03;
-        map.setPaintProperty('glow', 'circle-opacity', ['match', ['get', 'kind'], 'candle', o, 0.28]);
-      }, 160);
-    }
+    // The map stays still: redrawing it for an animation costs battery on phones.
+    // The candle that flickers lives on the letter page, in CSS.
 
     const pointer = (on) => () => { map.getCanvas().style.cursor = on ? 'pointer' : ''; };
     ['points', 'clusters'].forEach((l) => { map.on('mouseenter', l, pointer(true)); map.on('mouseleave', l, pointer(false)); });
@@ -417,21 +425,32 @@
     map = new maplibregl.Map({
       container: 'map',
       style: 'https://tiles.openfreemap.org/styles/positron',
-      center: fromHash ? [Number(fromHash[2]), Number(fromHash[1])] : [-30, 18],
-      zoom: fromHash ? 16 : small ? 0.6 : 1.7,
+      center: fromHash ? [Number(fromHash[2]), Number(fromHash[1])] : small ? [-20, 25] : [-30, 18],
+      zoom: fromHash ? 16 : small ? 0.3 : 1.7,
       attributionControl: { compact: true },
       dragRotate: false,
       pitchWithRotate: false,
     });
     map.touchZoomRotate.disableRotation();
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), small ? 'top-right' : 'bottom-right');
-    if (!small) map.setPadding({ left: 410, top: 0, right: 0, bottom: 0 });
+    // Keep the interesting part of the map out from under the panel.
+    const pad = () => {
+      const narrow = innerWidth < 760;
+      // On phones the map ends where the sheet begins, so nothing is hidden under it.
+      // On wide screens the side panel floats over the map and padding keeps the centre clear.
+      const mapEl = document.getElementById('map');
+      const bottom = narrow ? `${panel.offsetHeight}px` : '0px';
+      if (mapEl.style.bottom !== bottom) { mapEl.style.bottom = bottom; map.resize(); }
+      map.setPadding({ left: narrow ? 0 : panel.offsetWidth, top: 0, right: 0, bottom: 0 });
+    };
+    pad();
+    new ResizeObserver(pad).observe(panel);
     map.on('load', async () => {
       // A quieter basemap: fewer labels, paper-coloured land.
       for (const layer of map.getStyle().layers) {
         if (layer.type === 'symbol' && /shield|airport|label_other|highway-name-path/.test(layer.id)) map.setLayoutProperty(layer.id, 'visibility', 'none');
         if (layer.id === 'background') map.setPaintProperty('background', 'background-color', '#f2ead9');
-        if (layer.id === 'water') map.setPaintProperty('water', 'fill-color', '#d7d3c6');
+        if (layer.id === 'water') map.setPaintProperty('water', 'fill-color', '#d3d6d0');
         if (layer.type === 'symbol') {
           try { map.setPaintProperty(layer.id, 'text-color', '#7a6a58'); map.setPaintProperty(layer.id, 'text-halo-color', '#f5efe3'); } catch { /* not a text layer */ }
         }
@@ -442,6 +461,7 @@
       if (fromHash) openPlace(Number(fromHash[2]), Number(fromHash[1]));
     });
     renderMine();
+    renderRecent();
   }
 
   start();
