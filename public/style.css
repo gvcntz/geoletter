@@ -1,0 +1,236 @@
+/* GeoLetter. A memorial, not a product: paper, ink, one candle-ochre accent. */
+:root {
+  --paper: #f5efe3;
+  --paper-deep: #ebe2d0;
+  --sheet: #fbf7ee;
+  --ink: #2e241c;
+  --ink-soft: #66574a;
+  --rule: #d8ccb6;
+  --accent: #8a5418;      /* candle ochre, dark enough for text on paper */
+  --marigold: #c4872c;    /* decoration only */
+  --refused: #7a3b2a;
+  --serif: 'EB Garamond', 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+  --radius: 2px;
+  --slow: 600ms;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 18px;
+  line-height: 1.5;
+  font-kerning: normal;
+  font-variant-numeric: oldstyle-nums;
+}
+a { color: var(--accent); text-underline-offset: .18em; text-decoration-thickness: 1px; }
+a:hover { color: var(--ink); }
+h1, h2 { font-weight: 500; line-height: 1.15; margin: 0 0 .4em; }
+h2 { font-size: 1.45rem; }
+p { margin: 0 0 .8em; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.small { font-size: .88rem; color: var(--ink-soft); }
+.plain { list-style: none; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
+
+/* ---------- controls ---------- */
+button, input, textarea, select { font: inherit; color: inherit; }
+button {
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+  padding: .35em .9em;
+  transition: background-color var(--slow) ease;
+}
+button:hover { background: var(--paper-deep); }
+button.primary { background: var(--ink); color: var(--sheet); }
+button.primary:hover { background: #4a3b2e; }
+button:disabled { opacity: .55; cursor: progress; }
+button.link, button.quiet {
+  border: 0; padding: 0; background: none; color: var(--accent);
+  text-decoration: underline; text-underline-offset: .18em; text-decoration-thickness: 1px;
+}
+button.quiet { color: var(--ink-soft); font-size: .92rem; }
+button.link:hover, button.quiet:hover { background: none; color: var(--ink); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+input, textarea, select {
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: .4em .55em;
+  width: 100%;
+}
+input:focus, textarea:focus, select:focus { border-color: var(--ink-soft); outline: none; }
+textarea { resize: vertical; line-height: 1.55; }
+select { width: auto; padding: .1em .3em; }
+
+/* ---------- map page ---------- */
+.map-page { height: 100dvh; overflow: hidden; }
+#map { position: fixed; inset: 0; background: var(--paper-deep); }
+/* Paper tone over an open, label-light basemap. Markers sit on top in the same canvas. */
+#map .maplibregl-canvas { filter: sepia(.38) saturate(.62) contrast(.94) brightness(1.02); }
+.maplibregl-ctrl-attrib { background: rgba(245, 239, 227, .85) !important; font-family: var(--serif); font-size: 12px; }
+.maplibregl-ctrl-group { background: var(--sheet); border-radius: var(--radius); box-shadow: 0 0 0 1px var(--rule); }
+
+.panel {
+  position: fixed; z-index: 2; top: 0; left: 0; bottom: 0;
+  width: 410px;
+  background: var(--paper);
+  border-right: 1px solid var(--rule);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.panel-inner { padding: 28px 30px 40px; }
+.wordmark { font-size: 2.1rem; letter-spacing: .01em; margin: 0 0 .2em; color: var(--ink); text-decoration: none; font-weight: 500; }
+.lede { font-size: 1.22rem; line-height: 1.4; margin-bottom: 1.2em; max-width: 22em; }
+.hint { color: var(--ink-soft); }
+.colophon { margin-top: 2.2em; padding-top: 1em; border-top: 1px solid var(--rule); font-size: .88rem; color: var(--ink-soft); }
+
+.search { display: flex; gap: .5em; margin-bottom: .6em; }
+.search input { flex: 1; }
+.results { list-style: none; margin: 0 0 1em; padding: 0; border-top: 1px solid var(--rule); }
+.results li { border-bottom: 1px solid var(--rule); }
+.results button { border: 0; width: 100%; text-align: left; padding: .45em 0; }
+.results button:hover { background: none; color: var(--accent); }
+
+#mine { margin-top: 1.6em; }
+#mine h2 { font-size: 1.15rem; }
+#mine li { padding: .2em 0; }
+#mine .status { color: var(--ink-soft); font-size: .9rem; }
+
+/* place view */
+.place-head { margin-bottom: 1em; }
+.place-head p { color: var(--ink-soft); margin: 0; }
+.offering-list { list-style: none; margin: 0 0 1.4em; padding: 0; }
+.offering-list > li { padding: .9em 0; border-top: 1px solid var(--rule); }
+.offering-list .title { margin: 0; }
+.offering-list .meta { font-size: .88rem; color: var(--ink-soft); margin: .1em 0 .4em; }
+.offering-list .excerpt { white-space: pre-line; margin: .3em 0 .3em; }
+.offering-list .sealed { color: var(--ink-soft); font-style: italic; }
+.tally { color: var(--ink-soft); }
+
+/* compose */
+.compose h2 { margin-top: .4em; }
+.close { margin-bottom: .2em; }
+.field { display: block; margin: 0 0 1em; }
+.field > span:first-child, .field > label > span { display: block; margin-bottom: .2em; }
+.kinds { border: 0; padding: 0; margin: 0 0 1em; }
+.kinds legend { padding: 0; margin-bottom: .3em; }
+.kinds label { display: inline-flex; align-items: center; gap: .35em; margin: 0 1em .3em 0; cursor: pointer; }
+.kinds input { width: auto; accent-color: var(--accent); }
+.check { display: flex; gap: .55em; align-items: flex-start; margin: 0 0 1em; }
+.check input { width: auto; margin-top: .35em; accent-color: var(--accent); }
+.count { display: block; text-align: right; font-size: .82rem; color: var(--ink-soft); }
+.assist { margin: 0 0 1em; }
+.assist summary { cursor: pointer; color: var(--accent); }
+.assist textarea { margin: .4em 0 .5em; }
+.error { color: var(--refused); }
+.submit-row { margin: 1.2em 0 .6em; }
+
+/* status after leaving something */
+.waiting { padding: 1em 0; }
+.waiting .flame-line { display: flex; gap: 1em; align-items: center; }
+.waiting .candle { width: 30px; height: 54px; flex: none; }
+.reason { font-style: italic; }
+
+/* ---------- letter page ---------- */
+.paper { min-height: 100dvh; }
+.topline {
+  display: flex; justify-content: space-between; align-items: baseline;
+  max-width: 44rem; margin: 0 auto; padding: 22px 22px 0;
+}
+.topline .wordmark { font-size: 1.35rem; }
+.topline .back { font-size: .95rem; }
+.letter-page { max-width: 44rem; margin: 0 auto; padding: 18px 22px 64px; }
+
+.sheet {
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 46px 52px 54px;
+  margin: 18px 0 0;
+  box-shadow: 0 1px 0 var(--rule), 0 14px 30px -24px rgba(46, 36, 28, .45);
+}
+.dateline { text-align: right; color: var(--ink-soft); font-size: 1rem; line-height: 1.45; margin-bottom: 2.4em; }
+.addressee { font-size: 1.15rem; margin-bottom: 1.2em; }
+.letter-body {
+  white-space: pre-wrap;
+  font-size: 1.28rem;
+  line-height: 1.72;
+  max-width: 32em;
+  hyphens: auto;
+  overflow-wrap: break-word;
+}
+.letter-body.fading { opacity: 0; }
+.letter-body { transition: opacity var(--slow) ease; }
+.signature { margin: 1.8em 0 0 auto; text-align: right; font-size: 1.28rem; font-style: italic; }
+.small-offering { text-align: center; }
+.small-offering .dateline { text-align: center; }
+.small-offering .letter-body { margin: 1em auto 0; text-align: center; }
+.small-offering .signature { text-align: center; }
+.sheet .marigold, .sheet .candle { display: block; margin: .4em auto 1em; color: var(--marigold); }
+.sheet .marigold { width: 72px; height: 72px; }
+.sheet .candle { width: 44px; height: 80px; color: var(--ink-soft); }
+
+.candle .flame { fill: var(--marigold); transform-origin: 20px 26px; animation: flicker 4.5s ease-in-out infinite; }
+.candle.unlit { color: var(--ink-soft); }
+@keyframes flicker {
+  0%, 100% { transform: scale(1, 1); opacity: .95; }
+  35% { transform: scale(.96, 1.03); opacity: .85; }
+  60% { transform: scale(1.02, .97); opacity: 1; }
+}
+
+.sealed { text-align: center; }
+.sealed-line { font-size: 1.4rem; margin-top: .6em; }
+.sealed-sub, .distance { color: var(--ink-soft); }
+.sealed .actions { display: flex; flex-direction: column; align-items: center; gap: .8em; margin-top: 1.4em; }
+.geo-error { color: var(--refused); }
+#opened { text-align: left; margin-top: 1.6em; }
+
+.note { padding: 14px 18px; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--paper-deep); margin: 8px 0 0; }
+.note p:last-child { margin-bottom: 0; }
+.note.refused { border-color: #c9a796; }
+
+.letter-foot { text-align: center; color: var(--ink-soft); margin-top: 34px; font-size: .98rem; }
+.letter-foot .marigold { width: 30px; height: 30px; color: var(--marigold); display: block; margin: 0 auto .6em; }
+.example { font-style: italic; font-size: .9rem; }
+.translate-state { font-size: .92rem; }
+
+.message h1 { font-size: 1.7rem; }
+.message form { margin-top: 1.2em; }
+
+/* ---------- small screens: the panel becomes a sheet over the map ---------- */
+@media (max-width: 760px) {
+  body { font-size: 17px; }
+  .panel {
+    top: auto; right: 0; width: auto;
+    max-height: 62dvh;
+    border-right: 0; border-top: 1px solid var(--rule);
+    box-shadow: 0 -10px 30px -22px rgba(46, 36, 28, .5);
+  }
+  .panel.tall { max-height: 88dvh; }
+  .panel-inner { padding: 18px 18px calc(28px + env(safe-area-inset-bottom)); }
+  .wordmark { font-size: 1.7rem; }
+  .lede { font-size: 1.08rem; margin-bottom: .9em; }
+  .colophon { margin-top: 1.2em; }
+  .sheet { padding: 30px 22px 36px; }
+  .letter-body { font-size: 1.16rem; line-height: 1.68; }
+  .dateline { margin-bottom: 1.8em; }
+  .topline { padding: 16px 18px 0; }
+  .letter-page { padding: 10px 12px 48px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* the spot you chose, before anything is left there */
+.draft-marker {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 1.5px solid var(--ink); background: rgba(251, 247, 238, .7);
+}
