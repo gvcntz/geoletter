@@ -28,7 +28,7 @@ I tried hard to make it feel like a book of condolences instead of an app. Paper
 
 ## Demo
 
-Live: https://geoletter.157-151-149-35.sslip.io
+Live: https://geoletter.tech
 
 <!-- {% embed VIDEO_LINK %} -->
 
@@ -97,3 +97,5 @@ The ghost in this machine is a guardian. It sits at the door, reads every letter
 ## Prize Categories
 
 **Gemma.** Gemma 4 E2B runs locally through Ollama on the same CPU-only server as the app. It moderates every text, detects its language, translates it for readers, and drafts letters from loose notes. Without it nothing written can be published.
+
+**.tech Domain.** GeoLetter lives at [geoletter.tech](https://geoletter.tech), claimed through Hacktoberfest.

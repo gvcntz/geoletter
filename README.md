@@ -4,7 +4,7 @@ A world map where you leave a marigold, a candle or a letter at a place that bel
 
 Every word left on the map is read first by Gemma, an open-weight model running on the same small server as the app. Gemma decides what can stay, translates letters for readers in other languages, and can help someone who doesn't know how to start. Nothing anyone writes is sent to an outside AI service.
 
-Live: https://geoletter.157-151-149-35.sslip.io
+Live: https://geoletter.tech
 
 ![The map with the place panel open](docs/map-desktop.png)
 

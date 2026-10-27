@@ -4,7 +4,7 @@ Gravação de tela no celular (ou no Chrome em modo celular, 390 x 844) com narr
 
 ## Antes de gravar
 
-1. Abrir uma vez `https://geoletter.157-151-149-35.sslip.io/?demo=1&token=<ADMIN_TOKEN>` no navegador da gravação. O token está em `.env` (`ADMIN_TOKEN`). O cookie dura 24 h.
+1. Abrir uma vez `https://geoletter.tech/?demo=1&token=<ADMIN_TOKEN>` no navegador da gravação. O token está em `.env` (`ADMIN_TOKEN`). O cookie dura 24 h.
 2. Deixar a localização do navegador permitida (para aparecer a distância real da carta trancada).
 3. Abrir antes, uma vez, a carta de São Paulo e clicar em "Read it in English", para a tradução já estar em cache (ou mostrar a espera de verdade, se quiser, cortando no meio).
 4. Ter pronto o texto da carta ruim (cena 4) para colar.
