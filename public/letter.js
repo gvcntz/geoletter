@@ -73,6 +73,7 @@
     const q = new URLSearchParams();
     if (pos) { q.set('lat', pos.lat); q.set('lng', pos.lng); }
     if (key) q.set('k', key);
+    if (demo) q.set('demo', '1');
     const o = await api(`/api/offerings/${id}?${q}`);
     const dist = document.getElementById('distance');
     if (o.open) { renderOpened(o); return; }

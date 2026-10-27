@@ -378,8 +378,8 @@ export function createApp(db: DB, mailer: MailDriver) {
         .all(box.minLat, box.maxLat, box.minLng, box.maxLng) as unknown as Offering[]).filter(
         (o) => haversineMeters(lat as number, lng as number, o.lat, o.lng) <= PLACE_RADIUS_M,
       );
-      const demo = isDemo(req);
-      json(res, 200, { offerings: rows.map((o) => publicSummary(o, reader, demo)) });
+      // Sealed letters stay sealed in the list, demo or not; they open on their own page.
+      json(res, 200, { offerings: rows.map((o) => publicSummary(o, reader, false)) });
       return;
     }
 
@@ -406,7 +406,10 @@ export function createApp(db: DB, mailer: MailDriver) {
 
       if (!apiMatch[2] && method === 'GET') {
         const reader = { lat: num(url.searchParams.get('lat')), lng: num(url.searchParams.get('lng')) };
-        const summary = publicSummary(o, reader, demo || author);
+        // Demo only opens a sealed letter when the demo button asks for it, so the video
+        // can still show the sealed state and the real distance first.
+        const demoOpen = demo && url.searchParams.get('demo') === '1';
+        const summary = publicSummary(o, reader, demoOpen || author);
         json(res, 200, {
           ...summary,
           body: summary.open ? o.body : null,
@@ -471,7 +474,7 @@ export function createApp(db: DB, mailer: MailDriver) {
         return;
       }
       const demo = isDemo(req);
-      const open = !o.locked || demo;
+      const open = !o.locked;
       html(res, 200, letterPage({ o, open, demo, author, queueAhead: o.status === 'queued' ? queueAhead(o) : 0 }));
       return;
     }
