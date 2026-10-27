@@ -1,12 +1,12 @@
 ---
 title: GeoLetter: leave a letter where it happened, read first by a Gemma that never leaves the server
 published: false
-tags: devchallenge, hacktoberfest, opensourceai, gemma
+tags: devchallenge, hf26challenge, opensource, ai
 ---
 
-*This is a submission for the [Hacktoberfest Open-Source AI Challenge](https://dev.to/challenges/hacktoberfest): Ghost in the Machine.*
+*This is a submission for the [Hacktoberfest Open-Source AI Challenge](https://dev.to/challenges/hacktoberfest-week4-2026-10-26): Ghost in the Machine.*
 
-<!-- Before publishing: add the video, check the tags against the challenge page. -->
+<!-- Before publishing: add the video. -->
 
 ## What I Built
 
