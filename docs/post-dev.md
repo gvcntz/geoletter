@@ -10,9 +10,11 @@ tags: devchallenge, hf26challenge, opensource, ai
 
 ## What I Built
 
+My mother died of COVID in 2021. I built GeoLetter because I don't want to forget her, and I already am. Most of the year she slips away, and she comes back on November 2nd, Finados, the day Brazil sets aside for its dead. I'm haunted by the idea of losing every last memory of her. An episode of Grey's Anatomy about Día de los Muertos stayed with me, and this project grew from it. She always pushed me to build things, and I think she would have loved to see this one.
+
 GeoLetter is a world map where you leave something at a place that belonged to someone. A marigold, a candle, a letter, or "his blue harmonica". The person can be alive or gone.
 
-The idea came from the ofrenda. On Día de los Muertos the altar is built at home, but the memories are scattered around a city: the plaza where a grandmother sold tamales, the bakery where your mother bought bread every Sunday, the beach where a physics teacher tried to explain waves and the whole class ran from them. I wanted a place to leave words exactly there.
+The shape of it came from the ofrenda. On Día de los Muertos the altar is built at home, but the memories are scattered around a city: the plaza where a grandmother sold tamales, the bakery where your mother bought bread every Sunday, the beach where a physics teacher tried to explain waves and the whole class ran from them. I wanted a place to leave words exactly there.
 
 Some details that matter to me:
 
