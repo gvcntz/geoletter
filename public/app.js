@@ -296,8 +296,8 @@
     const render = (o) => {
       if (o.status === 'approved') {
         line.textContent = 'The guardian let it through. It is on the map now.';
-        box.append(h('p', null, h('a', { href: `/l/${created.id}` }, 'Open its page')),
-          created.notice ? h('p', { class: 'small' }, 'If an email was given, the note is on its way.') : null);
+        box.append(h('p', null, h('a', { href: `/l/${created.id}` }, 'Open its page')));
+        if (created.notice) box.append(h('p', { class: 'small' }, 'If an email was given, the note is on its way.'));
         loadOfferings();
         clearDraftMarker();
         return true;
