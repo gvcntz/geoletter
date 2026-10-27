@@ -6,7 +6,7 @@ tags: devchallenge, hacktoberfest, opensourceai, gemma
 
 *This is a submission for the [Hacktoberfest Open-Source AI Challenge](https://dev.to/challenges/hacktoberfest): Ghost in the Machine.*
 
-<!-- Before publishing: replace [REPO] with the GitHub link, add the video, check the tags against the challenge page. -->
+<!-- Before publishing: add the video, check the tags against the challenge page. -->
 
 ## What I Built
 
@@ -32,13 +32,13 @@ Live: https://geoletter.157-151-149-35.sslip.io
 
 The eight offerings already on the map are examples I wrote for the demo. The people in them are invented. Try opening the letter in Lagos: it is sealed, so unless you are on Bar Beach you'll see how far away you are.
 
-![The map](https://raw.githubusercontent.com/[REPO]/main/docs/map-desktop.png)
+![The map](https://raw.githubusercontent.com/gvcntz/geoletter/main/docs/map-desktop.png)
 
-![A letter and a sealed letter on a phone](https://raw.githubusercontent.com/[REPO]/main/docs/letter-mobile.png)
+![A letter and a sealed letter on a phone](https://raw.githubusercontent.com/gvcntz/geoletter/main/docs/letter-mobile.png)
 
 ## Code
 
-{% github [REPO] %}
+{% github gvcntz/geoletter %}
 
 ## How I Built It
 
