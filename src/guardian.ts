@@ -155,6 +155,25 @@ export const LANG_NAMES: Record<string, string> = {
   uk: 'Ukrainian', hi: 'Hindi', ar: 'Arabic', tl: 'Tagalog', vi: 'Vietnamese', id: 'Indonesian', sv: 'Swedish',
 };
 
+/**
+ * Gemma 4 E2B translated "I miss your voice" as "Sinto sua voz" and "you bought" as "você compra":
+ * word by word, and in the wrong tense. The prompt now asks for meaning over words, keeps tenses,
+ * and shows how longing is said in each language, because that is most of what these letters say.
+ */
+export function translationSystem(target: string): string {
+  const language = LANG_NAMES[target] ?? target;
+  return `You translate personal letters left at memorials into ${language}.
+Translate the meaning and the feeling, not word by word. Write it the way a native speaker would say it to someone they love, in natural word order.
+Keep every verb in its tense. A past habit stays a past habit: English "you bought it every Sunday" = Portuguese "você comprava todo domingo"; Portuguese "como sempre ficava o meu" = English "the way mine always did". What is true now stays in the present.
+Keep the line breaks exactly where they are. Keep names, nicknames and forms of address (Vó, seu Antônio, Dona Chayo, Tío Beto, Abuela) as written, and the writer's tone, including informal words. Translate everything else; leave no word in the original language.
+Do not add, explain or soften anything.
+Missing someone is said with idioms. Translate the idiom, never its literal words:
+- English "I miss your voice" = Portuguese "Sinto falta da sua voz" = Spanish "Extraño tu voz" (not "Sinto sua voz")
+- Portuguese "Que saudade de você" = English "I miss you so much" = Spanish "Te extraño muchísimo"
+- Spanish "Echo de menos tus manos" = Portuguese "Sinto falta das suas mãos" = English "I miss your hands"
+Output only the translation.`;
+}
+
 const inflight = new Map<string, Promise<string>>();
 
 /** Translate an approved letter, once per language. Later readers get the cached text. */
@@ -172,13 +191,7 @@ export async function translateOffering(db: DB, o: Offering, target: string): Pr
       .push(PRIORITY.interactive, () =>
         chat(
           [
-            {
-              role: 'system',
-              content:
-                `You translate personal letters left at memorials. Translate the letter into ${LANG_NAMES[target] ?? target}. ` +
-                'Keep names, nicknames, line breaks and the writer\'s tone, including informal words. ' +
-                'Do not add, explain or soften anything. Output only the translation.',
-            },
+            { role: 'system', content: translationSystem(target) },
             { role: 'user', content: o.body },
           ],
           { temperature: 0.2, numPredict: 900 },
