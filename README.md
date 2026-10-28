@@ -14,6 +14,10 @@ It is meant to feel like a book of condolences, not an app: paper, ink, one seri
 |---|---|
 | ![A letter on a phone](docs/letter-mobile.png) | ![A sealed letter on a phone](docs/sealed-mobile.png) |
 
+![A letter sealed to a beach in Lagos stays shut from São Paulo, then opens in demo mode](docs/demo.gif)
+
+A 90-second demo: [narrated](docs/demo-narrated.mp4) (voice by ElevenLabs), [silent](docs/demo.mp4), and vertical for phones ([narrated](docs/demo-vertical-narrated.mp4), [silent](docs/demo-vertical.mp4)).
+
 ## What you can do
 
 - **Leave something at a place.** Touch the map or search for a place. Leave a marigold, a candle, a letter, or something of theirs ("his blue harmonica").

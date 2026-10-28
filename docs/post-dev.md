@@ -1,6 +1,6 @@
 ---
 title: GeoLetter: leave a letter where it happened, read first by a Gemma that never leaves the server
-published: false
+published: true
 tags: devchallenge, hf26challenge, opensource, ai
 ---
 
@@ -30,9 +30,9 @@ I tried hard to make it feel like a book of condolences instead of an app. Paper
 
 Live: https://geoletter.tech
 
-<!-- {% embed VIDEO_LINK %} -->
+{% embed https://youtu.be/quFVk9EosQc %}
 
-The eight offerings already on the map are examples I wrote for the demo. The people in them are invented. Try opening the letter in Lagos: it is sealed, so unless you are on Bar Beach you'll see how far away you are.
+The offerings already on the map are examples I wrote for the demo. The people in them are invented. Try opening the letter in Lagos: it is sealed, so unless you are on Bar Beach you'll see how far away you are.
 
 ![The map](https://raw.githubusercontent.com/gvcntz/geoletter/main/docs/map-desktop.png)
 
@@ -49,6 +49,8 @@ The stack is small on purpose:
 - **Node 24 running TypeScript directly**, with the built-in `node:sqlite`. No build step, one runtime dependency (Nodemailer, only for the SMTP driver).
 - **MapLibre GL JS** with the open OpenFreeMap style and OpenStreetMap data, toned down to look like paper. Place search goes through **Nominatim**, proxied by the server at no more than one request per second and cached.
 - **Gemma 4 E2B through Ollama**, on an ARM VPS with four cores, no GPU, shared with other projects.
+
+The demo video is a headless Chrome recording cut with ffmpeg, and the narration is an ElevenLabs voice, credited at the end so nobody mistakes it for mine.
 
 ### Gemma, and why the project depends on it
 
@@ -84,6 +86,8 @@ Time matters too. A memorial is supposed to last, and hosted models get retired,
 
 There's also the plain cost. GeoLetter will never make money. A model that runs on two CPU cores costs nothing per letter, so keeping it online only costs the server it already shares with other things.
 
+A hosted moderation API would have been faster, but every grieving letter would have left the server before anyone read it. With open weights I could also do things a closed API won't let me: test Gemma 3 4B against Gemma 4 E2B on the same six letters and keep the faster one, cap it at two CPU threads so it shares the server politely, and know it will behave the same way next year.
+
 The rest is open too: OpenStreetMap data drawn by MapLibre, an OpenFreeMap style with no API key, Nominatim for place names, EB Garamond for the letters.
 
 ## The Spirit of It
@@ -99,3 +103,5 @@ The ghost in this machine is a guardian. It sits at the door, reads every letter
 **Gemma.** Gemma 4 E2B runs locally through Ollama on the same CPU-only server as the app. It moderates every text, detects its language, translates it for readers, and drafts letters from loose notes. Without it nothing written can be published.
 
 **.tech Domain.** GeoLetter lives at [geoletter.tech](https://geoletter.tech), claimed through Hacktoberfest.
+
+**ElevenLabs.** The demo is narrated with an ElevenLabs voice.
