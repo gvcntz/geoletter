@@ -151,6 +151,24 @@ select { width: auto; padding: .1em .3em; }
 .error { color: var(--refused); }
 .submit-row { margin: 1.2em 0 .6em; }
 
+/* a sealed letter, as a passer-by will see it: the letter page's own card, drawn small and inert */
+.seal-preview { margin: -.2em 0 1.2em; }
+.preview-title { font-size: 1.15rem; font-weight: 500; margin: 0 0 .2em; }
+.preview-frame {
+  background: var(--paper-deep);
+  border: 1px dashed var(--rule);
+  border-radius: var(--radius);
+  padding: 12px 10px 4px;
+  margin: .5em 0 .9em;
+  user-select: none;
+}
+.preview-frame .sheet { margin: 0; padding: 30px 22px 36px; }
+.preview-frame .letter-foot { margin-top: 18px; }
+.preview-facts .facts-head { margin: .7em 0 .15em; }
+.preview-facts ul { margin: 0 0 .5em; padding-left: 1.1em; }
+.preview-facts li { margin: .1em 0; }
+.preview-facts .hidden-list { color: var(--ink-soft); font-style: italic; }
+
 /* status after leaving something */
 .waiting { padding: 1em 0; }
 .waiting .flame-line { display: flex; gap: 1em; align-items: center; }

@@ -1,5 +1,25 @@
 import type { Offering } from './db.ts';
 import { t, type Lang } from './i18n.ts';
+// The sealed card is drawn by public/sealed-card.js, the same code the form uses for its
+// preview. It takes its words from public/i18n.js.
+import '../public/i18n.js';
+import '../public/sealed-card.js';
+
+interface Card { kind: string; locked: boolean | number; place: string; to?: string; radius?: number }
+export interface SealedCard {
+  esc(value: unknown): string;
+  sheet(card: Card, lang: Lang, actions?: string): string;
+  openButton(lang: Lang, more?: string): string;
+  foot(card: Card, lang: Lang, extra?: string): string;
+  preview(draft: { place: string; to: string; from: string; radius: number }, lang: Lang, now?: number): string;
+  MARIGOLD_SVG: string;
+  SEALED_SVG: string;
+  PUBLIC_FIELDS: string[];
+  HIDDEN_FIELDS: string[];
+}
+export const Sealed = (globalThis as unknown as { GeoSealed: SealedCard }).GeoSealed;
+export const MARIGOLD_SVG = Sealed.MARIGOLD_SVG;
+export const SEALED_SVG = Sealed.SEALED_SVG;
 
 export function esc(value: unknown): string {
   return String(value ?? '').replace(
@@ -16,24 +36,9 @@ export function formatDate(ms: number, lang: string | null): string {
   }
 }
 
-// Hand-drawn marigold: a ring of petals in thin ochre strokes. Used once per page, small.
-export const MARIGOLD_SVG = `<svg class="marigold" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
-<g fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round">
-<path d="M32 22c-3-6-1-11 0-12 1 1 3 6 0 12z"/><path d="M32 42c-3 6-1 11 0 12 1-1 3-6 0-12z"/>
-<path d="M22 32c-6-3-11-1-12 0 1 1 6 3 12 0z"/><path d="M42 32c6-3 11-1 12 0-1 1-6 3-12 0z"/>
-<path d="M25 25c-5-4-6-9-6-10 1 0 6 1 9 7z"/><path d="M39 39c5 4 6 9 6 10-1 0-6-1-9-7z"/>
-<path d="M39 25c4-5 9-6 10-6 0 1-1 6-7 9z"/><path d="M25 39c-4 5-9 6-10 6 0-1 1-6 7-9z"/>
-<circle cx="32" cy="32" r="6.5"/><circle cx="32" cy="32" r="2.6"/></g></svg>`;
-
 export const CANDLE_SVG = `<svg class="candle" viewBox="0 0 40 72" aria-hidden="true" focusable="false">
 <path class="flame" d="M20 6c4 7 6 10 6 14a6 6 0 0 1-12 0c0-4 2-7 6-14z"/>
 <path d="M20 26v6" stroke="currentColor" stroke-width="1.2"/>
-<rect x="11" y="32" width="18" height="34" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
-<path d="M8 66h24" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`;
-
-export const SEALED_SVG = `<svg class="candle unlit" viewBox="0 0 40 72" aria-hidden="true" focusable="false">
-<path d="M20 26v6" stroke="currentColor" stroke-width="1.2"/>
-<path d="M20 24c-1-3 1-5 0-8M22 20c1-2 0-4 1-6" fill="none" stroke="currentColor" stroke-width=".8" opacity=".5"/>
 <rect x="11" y="32" width="18" height="34" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
 <path d="M8 66h24" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`;
 
@@ -130,16 +135,12 @@ export function letterPage(v: LetterView): string {
 
   let sheet: string;
   if (!showText) {
-    sheet = `<section class="sheet sealed" aria-live="polite">
-${SEALED_SVG}
-<p class="sealed-line">${esc(t(ui, 'sealedLine'))}</p>
-<p class="sealed-sub">${esc(t(ui, 'sealedSub', { r: o.lock_radius_m, place }))}</p>
-<p class="distance" id="distance" hidden></p>
-<p class="actions"><button type="button" id="open-here">${esc(t(ui, 'openHere'))}</button>
-${v.demo ? `<button type="button" class="quiet" id="open-demo">${esc(t(ui, 'openDemo'))}</button>` : ''}</p>
+    const card = { kind: o.kind, locked: o.locked, place: o.place, radius: o.lock_radius_m };
+    const demo = v.demo ? `<button type="button" class="quiet" id="open-demo">${esc(t(ui, 'openDemo'))}</button>` : '';
+    sheet = Sealed.sheet(card, ui, `<p class="distance" id="distance" hidden></p>
+${Sealed.openButton(ui, demo)}
 <p class="geo-error" id="geo-error" hidden></p>
-<div id="opened" hidden></div>
-</section>`;
+<div id="opened" hidden></div>`);
   } else {
     const kindMark = o.kind === 'candle' ? CANDLE_SVG : o.kind === 'flower' ? MARIGOLD_SVG : '';
     sheet = `<article class="sheet${isLetter ? '' : ' small-offering'}" lang="${esc(lang)}">
@@ -157,12 +158,8 @@ ${o.from_name ? `<p class="signature">${esc(o.from_name)}</p>` : ''}
  data-lat="${o.lat}" data-lng="${o.lng}" data-radius="${esc(o.lock_radius_m)}" data-demo="${v.demo ? '1' : '0'}">
 ${authorNote(v)}
 ${sheet}
-<footer class="letter-foot">
-${MARIGOLD_SVG}
-<p>${esc(isLetter && o.to_name ? t(ui, 'leftFor', { to: o.to_name, place }) : t(ui, 'leftAt', { place }))}${o.locked ? esc(t(ui, 'sealedToPlace')) : ''}.</p>
-${isLetter && o.status === 'approved' ? '<p><button type="button" class="link" id="translate" hidden></button></p><p class="translate-state" id="translate-state" hidden></p>' : ''}
-${o.is_example ? `<p class="example">${esc(t(ui, 'exampleNote'))}</p>` : ''}
-</footer>
+${Sealed.foot({ kind: o.kind, locked: o.locked, place: o.place, to: o.to_name }, ui, `${isLetter && o.status === 'approved' ? '<p><button type="button" class="link" id="translate" hidden></button></p><p class="translate-state" id="translate-state" hidden></p>' : ''}
+${o.is_example ? `<p class="example">${esc(t(ui, 'exampleNote'))}</p>` : ''}`)}
 </main>`;
 
   const description = `${title} · ${place}`;

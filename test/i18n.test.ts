@@ -52,7 +52,7 @@ test('both dictionaries have the same keys, and the Portuguese has no dashes mid
 });
 
 test('server words in Portuguese', () => {
-  assert.equal(t('pt', 'sealedLine'), 'Esta carta espera por quem passar por aqui.');
+  assert.equal(client.t('pt', 'card.line'), 'Esta carta espera por quem passar por aqui.');
   assert.equal(offeringTitle({ kind: 'flower', to_name: 'Vó Chayo' }, 'pt'), 'Uma flor para Vó Chayo');
   assert.equal(offeringTitle({ kind: 'letter', to_name: '' }, 'en'), 'A letter');
   assert.equal(t('pt', 'tooMany', { what: 'x', min: 3 }), 'Muitos pedidos seguidos daqui. Tente de novo em 3 min.');

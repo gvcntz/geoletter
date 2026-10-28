@@ -1,4 +1,5 @@
-// GeoLetter map page. Plain JS, no build step. User text only ever goes through textContent.
+// GeoLetter map page. Plain JS, no build step. User text only ever goes through textContent,
+// except the sealed-letter preview, whose HTML comes escaped from public/sealed-card.js.
 (() => {
   'use strict';
 
@@ -216,7 +217,7 @@
         .then((r) => {
           if (mine !== lookup) return;
           // Only fill the field if the person has not typed their own name for the place.
-          if (!f.place.value || f.place.value === autoName) { autoName = r.name || ''; f.place.value = autoName; }
+          if (!f.place.value || f.place.value === autoName) { autoName = r.name || ''; f.place.value = autoName; renderPreview(); }
         })
         .catch(() => {})
         .finally(() => { if (mine === lookup) f.place.placeholder = tr('compose.placeHolder'); });
@@ -245,6 +246,31 @@
       submit.textContent = tr(`submit.${kind}`);
     };
     form.querySelectorAll('input[name="kind"]').forEach((r) => r.addEventListener('change', update));
+
+    // A sealed letter shows, before it is left, exactly what a passer-by will see of it. The card
+    // comes from public/sealed-card.js, the same code that draws the letter page on the server.
+    // The letter text is never handed to it. Everything typed is escaped there.
+    const previewBox = form.querySelector('[data-seal-preview]');
+    const renderPreview = () => {
+      const on = f.kind.value === 'letter' && f.locked.checked;
+      previewBox.hidden = !on;
+      if (!on) { previewBox.replaceChildren(); return; }
+      previewBox.innerHTML = window.GeoSealed.preview(
+        { place: f.place.value, to: f.to.value, from: f.from.value, radius: Number(f.radius.value) },
+        I18N.lang,
+      );
+    };
+    let previewTimer = 0;
+    const schedulePreview = () => { clearTimeout(previewTimer); previewTimer = setTimeout(renderPreview, 120); };
+    form.querySelectorAll('input[name="kind"]').forEach((r) => r.addEventListener('change', renderPreview));
+    f.locked.addEventListener('change', () => {
+      renderPreview();
+      if (f.locked.checked && !reduceMotion) previewBox.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+    f.radius.addEventListener('change', renderPreview);
+    for (const name of ['place', 'to', 'from']) f[name].addEventListener('input', schedulePreview);
+    const onLang = () => { if (document.body.contains(form)) renderPreview(); else document.removeEventListener('geoletter:lang', onLang); };
+    document.addEventListener('geoletter:lang', onLang);
     const count = form.querySelector('[data-count]');
     f.body.addEventListener('input', () => { count.textContent = `${[...f.body.value].length} / 2000`; });
 
@@ -257,6 +283,7 @@
       f.body.dispatchEvent(new Event('input'));
     }
     update();
+    renderPreview();
 
     form.querySelector('[data-close]').addEventListener('click', showIntro);
 
