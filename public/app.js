@@ -3,15 +3,29 @@
   'use strict';
 
   const $ = (sel, root = document) => root.querySelector(sel);
-  const browserLang = (navigator.language || 'en').slice(0, 2).toLowerCase();
+  const I18N = window.GeoI18n;
+  const tr = (key, params) => I18N.tr(key, params);
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const narrow = () => innerWidth < 760;
   const panel = $('#panel');
   const intro = $('#intro');
   const view = $('#view');
   let cfg = { demo: false, lockRadiusDefault: 200 };
   let map;
   let draftMarker = null;
+  let composing = null; // the open form's "move the point" function, while one is open
+  let currentPlace = null; // { lng, lat } of the place view on screen, to redraw it on a language change
   let readerPos = null; // only set after the person presses a button that asks for it
+
+  // Rendered features come back rounded to the tile grid (hundreds of metres at world zoom),
+  // so the place to open is looked up by id in the data as it was loaded.
+  const exact = new Map();
+  const remember = (data) => { exact.clear(); for (const f of data.features || []) exact.set(f.properties.id, f.geometry.coordinates); };
+  const coordsOf = (f) => (f.properties.id && exact.get(f.properties.id)) || f.geometry.coordinates;
+
+  // A finger is about 44 px wide; the dots stay small, the target around them does not.
+  const HIT_RADIUS = 22;
+  const SAME_PLACE_M = 60;
 
   function h(tag, attrs, ...children) {
     const el = document.createElement(tag);
@@ -35,22 +49,34 @@
       body: opts.body ? JSON.stringify(opts.body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Something went wrong. Try again in a moment.');
+    if (!res.ok) throw new Error(data.error || tr('error.generic'));
     return data;
   }
 
-  const fmtDate = (ms) => new Intl.DateTimeFormat(navigator.language || 'en', { day: 'numeric', month: 'long', year: 'numeric' }).format(ms);
+  const fmtDate = (ms) => new Intl.DateTimeFormat(I18N.locale(), { day: 'numeric', month: 'long', year: 'numeric' }).format(ms);
   function fmtDistance(m) {
     if (m < 1000) return `${Math.round(m)} m`;
-    if (m < 100000) return `${(m / 1000).toFixed(1)} km`;
-    return `${Math.round(m / 1000).toLocaleString('en')} km`;
+    if (m < 100000) return `${(m / 1000).toLocaleString(I18N.locale(), { maximumFractionDigits: 1 })} km`;
+    return `${Math.round(m / 1000).toLocaleString(I18N.locale())} km`;
   }
+  function meters(a, b) {
+    const k = Math.PI / 180;
+    const x = (b[0] - a[0]) * k * Math.cos(((a[1] + b[1]) / 2) * k);
+    const y = (b[1] - a[1]) * k;
+    return Math.hypot(x, y) * 6371000;
+  }
+  const ease = (opts) => map.easeTo({ ...opts, duration: reduceMotion ? 0 : opts.duration ?? 900 });
 
   // ---------- remembered offerings (author keys stay in this browser only) ----------
   const MINE_KEY = 'geoletter.mine';
   const loadMine = () => { try { return JSON.parse(localStorage.getItem(MINE_KEY) || '[]'); } catch { return []; } };
   const saveMine = (list) => localStorage.setItem(MINE_KEY, JSON.stringify(list.slice(0, 30)));
   function rememberMine(entry) { saveMine([entry, ...loadMine().filter((e) => e.id !== entry.id)]); }
+
+  function mineTitle(m) {
+    if (m.kind) return m.kind === 'letter' ? tr('mine.letter', { to: m.to || '' }) : tr(`mine.${m.kind}`);
+    return m.title || tr('mine.untitled');
+  }
 
   async function renderMine() {
     const list = loadMine();
@@ -59,14 +85,13 @@
     ul.replaceChildren();
     box.hidden = list.length === 0;
     for (const m of list.slice(0, 8)) {
-      const li = h('li', null, h('a', { href: `/l/${m.id}?k=${encodeURIComponent(m.key)}` }, m.title || 'An offering'), ' ', h('span', { class: 'status' }, ''));
+      const li = h('li', null, h('a', { href: `/l/${m.id}?k=${encodeURIComponent(m.key)}` }, mineTitle(m)), ' ', h('span', { class: 'status' }, ''));
       ul.append(li);
       api(`/api/offerings/${m.id}?k=${encodeURIComponent(m.key)}`)
         .then((o) => {
-          li.querySelector('.status').textContent =
-            o.status === 'approved' ? 'on the map' : o.status === 'queued' ? 'with the guardian' : 'kept back';
+          li.querySelector('.status').textContent = tr(o.status === 'approved' ? 'status.approved' : o.status === 'queued' ? 'status.queued' : 'status.rejected');
         })
-        .catch(() => { li.querySelector('.status').textContent = 'gone'; });
+        .catch(() => { li.querySelector('.status').textContent = tr('status.gone'); });
     }
   }
 
@@ -77,7 +102,7 @@
       ul.replaceChildren(...offerings.map((o) => h('li', null, h('button', { type: 'button', onclick: () => {
         map.flyTo({ center: [o.lng, o.lat], zoom: 15.5, duration: reduceMotion ? 0 : 2400 });
         openPlace(o.lng, o.lat);
-      } }, o.title, h('span', { class: 'where' }, `${o.place || 'Somewhere'} · ${fmtDate(o.created_at)}`)))));
+      } }, o.title, h('span', { class: 'where' }, `${o.place || tr('somewhere')} · ${fmtDate(o.created_at)}`)))));
       $('#recent').hidden = offerings.length === 0;
     } catch { /* the map still works without it */ }
   }
@@ -88,6 +113,8 @@
     view.replaceChildren();
     intro.hidden = false;
     panel.classList.remove('tall');
+    composing = null;
+    currentPlace = null;
     clearDraftMarker();
     renderMine();
     renderRecent();
@@ -96,6 +123,7 @@
 
   function showView(...children) {
     intro.hidden = true;
+    composing = null;
     view.replaceChildren(...children);
     view.hidden = false;
     panel.scrollTop = 0;
@@ -105,19 +133,26 @@
     if (draftMarker) { draftMarker.remove(); draftMarker = null; }
   }
 
-  function placeDraftMarker(lngLat) {
+  // On phones the sheet grows and the map shrinks: keep the chosen spot in view.
+  function keepInView(lngLat) {
+    if (narrow()) setTimeout(() => ease({ center: lngLat, duration: 600 }), 60);
+  }
+
+  function placeDraftMarker(lngLat, onMove) {
     clearDraftMarker();
     const el = h('div', { class: 'draft-marker', 'aria-hidden': 'true' });
-    draftMarker = new maplibregl.Marker({ element: el }).setLngLat(lngLat).addTo(map);
-    // On phones the sheet grows and the map shrinks: keep the chosen spot in view.
-    if (innerWidth < 760) setTimeout(() => map.easeTo({ center: lngLat, duration: reduceMotion ? 0 : 600 }), 50);
+    draftMarker = new maplibregl.Marker({ element: el, draggable: true }).setLngLat(lngLat).addTo(map);
+    draftMarker.on('dragend', () => { const p = draftMarker.getLngLat(); onMove(p.lng, p.lat); });
+    keepInView(lngLat);
   }
 
   // ---------- a place on the map ----------
   async function openPlace(lng, lat) {
     history.replaceState(null, '', `#${lat.toFixed(5)},${lng.toFixed(5)}`);
-    const back = h('button', { type: 'button', class: 'link close', onclick: showIntro }, 'Back');
-    showView(back, h('p', { class: 'small' }, 'Looking…'));
+    const back = h('button', { type: 'button', class: 'link close', onclick: showIntro }, tr('back'));
+    showView(back, h('p', { class: 'small' }, tr('search.looking')));
+    currentPlace = { lng, lat };
+    keepInView([lng, lat]);
     let data;
     const q = new URLSearchParams({ lat, lng });
     if (readerPos) { q.set('rlat', readerPos.lat); q.set('rlng', readerPos.lng); }
@@ -127,34 +162,30 @@
       showView(back, h('p', { class: 'error' }, e.message));
       return;
     }
+    if (!currentPlace || currentPlace.lng !== lng || currentPlace.lat !== lat) return; // something else was opened meanwhile
     const list = data.offerings;
     if (!list.length) { compose({ lng, lat }); return; }
 
     const counts = { flower: 0, candle: 0, letter: 0, item: 0 };
     list.forEach((o) => counts[o.kind]++);
-    const words = [
-      counts.flower && `${counts.flower} marigold${counts.flower > 1 ? 's' : ''}`,
-      counts.candle && `${counts.candle} candle${counts.candle > 1 ? 's' : ''}`,
-      counts.letter && `${counts.letter} letter${counts.letter > 1 ? 's' : ''}`,
-      counts.item && `${counts.item} other thing${counts.item > 1 ? 's' : ''}`,
-    ].filter(Boolean);
+    const words = ['flower', 'candle', 'letter', 'item'].filter((k) => counts[k]).map((k) => tr(`count.${k}`, { n: counts[k] }));
 
-    const place = list.find((o) => o.place)?.place || 'This place';
+    const place = list.find((o) => o.place)?.place || tr('thisPlace');
     const items = list.map((o) => {
-      const meta = [fmtDate(o.created_at), o.from && `from ${o.from}`].filter(Boolean).join(' · ');
+      const meta = [fmtDate(o.created_at), o.from && tr('from', { name: o.from })].filter(Boolean).join(' · ');
       let content;
       if (!o.open) {
-        const far = o.distance !== null ? ` You are about ${fmtDistance(o.distance)} away.` : '';
-        content = h('p', { class: 'sealed' }, `Sealed to this place. It opens within ${o.radius} m.${far}`);
+        const far = o.distance !== null ? tr('away', { d: fmtDistance(o.distance) }) : '';
+        content = h('p', { class: 'sealed' }, tr('sealedList', { r: o.radius }) + far);
       } else if (o.excerpt) {
         content = h('p', { class: 'excerpt', lang: o.lang || undefined }, o.excerpt);
       }
       const isText = o.kind === 'letter' || o.kind === 'item' || o.excerpt;
-      return h('li', null,
+      return h('li', { 'data-id': o.id },
         h('p', { class: 'title' }, o.title),
-        h('p', { class: 'meta' }, meta, o.example ? ' · example' : ''),
+        h('p', { class: 'meta' }, meta, o.example ? ` · ${tr('example')}` : ''),
         content,
-        isText || o.kind === 'letter' ? h('a', { href: `/l/${o.id}` }, o.kind === 'letter' ? (o.open ? 'Read the letter' : 'Go to the letter') : 'Open') : null,
+        isText ? h('a', { href: `/l/${o.id}` }, o.kind === 'letter' ? (o.open ? tr('readLetter') : tr('goToLetter')) : tr('open')) : null,
       );
     });
 
@@ -162,34 +193,56 @@
       back,
       h('div', { class: 'place-head' }, h('h2', null, place), h('p', { class: 'tally' }, words.join(', '))),
       h('ul', { class: 'offering-list' }, items),
-      h('button', { type: 'button', onclick: () => compose({ lng, lat, place }) }, 'Leave something here too'),
+      h('button', { type: 'button', onclick: () => compose({ lng, lat, place }) }, tr('leaveToo')),
     );
+    currentPlace = { lng, lat };
   }
 
   // ---------- leaving something ----------
-  const SUBMIT_LABEL = { flower: 'Leave the marigold', candle: 'Light the candle', letter: 'Leave the letter', item: 'Leave it here' };
-
   async function compose({ lng, lat, place = '', restore = null }) {
-    history.replaceState(null, '', `#${lat.toFixed(5)},${lng.toFixed(5)}`);
-    placeDraftMarker([lng, lat]);
+    const pos = { lng, lat };
     const form = $('#compose-tpl').content.firstElementChild.cloneNode(true);
+    I18N.apply(form);
     showView(form);
     panel.classList.add('tall');
     const f = form.elements;
-    f.place.value = place;
-    if (!place) {
-      f.place.placeholder = 'Finding the name of this place…';
-      api(`/api/geo/reverse?lat=${lat}&lng=${lng}&lang=${browserLang}`)
-        .then((r) => { if (!f.place.value) f.place.value = r.name || ''; })
+    let autoName = '';
+    let lookup = 0;
+
+    const nameThisSpot = () => {
+      const mine = ++lookup;
+      f.place.placeholder = tr('compose.placeFinding');
+      api(`/api/geo/reverse?lat=${pos.lat}&lng=${pos.lng}&lang=${I18N.lang}`)
+        .then((r) => {
+          if (mine !== lookup) return;
+          // Only fill the field if the person has not typed their own name for the place.
+          if (!f.place.value || f.place.value === autoName) { autoName = r.name || ''; f.place.value = autoName; }
+        })
         .catch(() => {})
-        .finally(() => { f.place.placeholder = 'A street, a plaza, a kitchen in Bauru'; });
-    }
+        .finally(() => { if (mine === lookup) f.place.placeholder = tr('compose.placeHolder'); });
+    };
+
+    const moveTo = (nlng, nlat) => {
+      pos.lng = nlng;
+      pos.lat = nlat;
+      history.replaceState(null, '', `#${nlat.toFixed(5)},${nlng.toFixed(5)}`);
+      if (draftMarker) draftMarker.setLngLat([nlng, nlat]); else placeDraftMarker([nlng, nlat], moveTo);
+      nameThisSpot();
+    };
+
+    history.replaceState(null, '', `#${lat.toFixed(5)},${lng.toFixed(5)}`);
+    placeDraftMarker([lng, lat], moveTo);
+    f.place.value = place;
+    f.place.placeholder = tr('compose.placeHolder');
+    if (!place) nameThisSpot();
     f.radius.value = String(cfg.lockRadiusDefault);
 
     const update = () => {
       const kind = f.kind.value;
       form.querySelectorAll('[data-for]').forEach((el) => { el.hidden = !el.dataset.for.split(' ').includes(kind); });
-      form.querySelector('[data-submit]').textContent = SUBMIT_LABEL[kind];
+      const submit = form.querySelector('[data-submit]');
+      submit.dataset.i18n = `submit.${kind}`;
+      submit.textContent = tr(`submit.${kind}`);
     };
     form.querySelectorAll('input[name="kind"]').forEach((r) => r.addEventListener('change', update));
     const count = form.querySelector('[data-count]');
@@ -212,16 +265,16 @@
     const draftState = form.querySelector('[data-draft-state]');
     draftBtn.addEventListener('click', async () => {
       const notes = f.notes.value.trim();
-      if (notes.length < 10) { draftState.hidden = false; draftState.textContent = 'Write a few memories first, even loose ones.'; return; }
-      if (f.body.value.trim() && !confirm('Replace what is in the letter with the draft?')) return;
+      if (notes.length < 10) { draftState.hidden = false; draftState.textContent = tr('draft.needNotes'); return; }
+      if (f.body.value.trim() && !confirm(tr('draft.replace'))) return;
       draftBtn.disabled = true;
       draftState.hidden = false;
-      draftState.textContent = 'Gemma is writing a first draft from your notes. On this small server it takes about half a minute.';
+      draftState.textContent = tr('draft.working');
       try {
         const r = await api('/api/draft', { method: 'POST', body: { to: f.to.value, notes } });
         f.body.value = r.body;
         f.body.dispatchEvent(new Event('input'));
-        draftState.textContent = 'Here is a draft. Change anything that is not how you would say it.';
+        draftState.textContent = tr('draft.done');
         f.body.focus();
       } catch (e) {
         draftState.textContent = e.message;
@@ -236,12 +289,13 @@
       const err = form.querySelector('[data-error]');
       err.hidden = true;
       const payload = {
-        kind, lat, lng,
+        kind, lat: pos.lat, lng: pos.lng,
         place: f.place.value,
         to: f.to.value,
         from: f.from.value,
         body: kind === 'letter' ? f.body.value : kind === 'item' ? f.item.value : f.note.value,
         lang: navigator.language || 'en',
+        placeLang: I18N.lang,
       };
       if (kind === 'letter') {
         payload.locked = f.locked.checked;
@@ -252,13 +306,12 @@
       btn.disabled = true;
       try {
         const r = await api('/api/offerings', { method: 'POST', body: payload });
-        const title = kind === 'letter' ? `A letter${payload.to ? ' for ' + payload.to.trim() : ''}` : SUBMIT_LABEL[kind].replace(/^(Leave|Light) the /, 'A ').replace('Leave it here', 'Something left');
-        rememberMine({ id: r.id, key: r.key, title, at: Date.now() });
+        rememberMine({ id: r.id, key: r.key, kind, to: payload.to.trim(), at: Date.now() });
         const restoreData = {
           kind, place: f.place.value, to: f.to.value, from: f.from.value,
           body: f.body.value, item: f.item.value, note: f.note.value, locked: f.locked.checked,
         };
-        waitForGuardian(r, { lng, lat, restore: restoreData });
+        waitForGuardian(r, { lng: pos.lng, lat: pos.lat, restore: restoreData });
       } catch (e) {
         err.textContent = e.message;
         err.hidden = false;
@@ -266,6 +319,7 @@
       }
     });
 
+    composing = moveTo;
     f.place.focus({ preventScroll: true });
   }
 
@@ -289,32 +343,28 @@
     const line = h('p', null, '');
     const box = h('div', { class: 'waiting' },
       h('div', { class: 'flame-line' }, candleSvg(), line),
-      h('p', { class: 'small' }, 'You can close this. Your link: ', h('a', { href: link }, 'see it later'), '.'),
+      h('p', { class: 'small' }, tr('wait.close'), h('a', { href: link }, tr('wait.later')), '.'),
     );
-    showView(h('button', { type: 'button', class: 'link close', onclick: showIntro }, 'Back to the map'), box);
+    showView(h('button', { type: 'button', class: 'link close', onclick: showIntro }, tr('backToMap')), box);
 
     const render = (o) => {
       if (o.status === 'approved') {
-        line.textContent = 'The guardian let it through. It is on the map now.';
-        box.append(h('p', null, h('a', { href: `/l/${created.id}` }, 'Open its page')));
-        if (created.notice) box.append(h('p', { class: 'small' }, 'If an email was given, the note is on its way.'));
+        line.textContent = tr('wait.approved');
+        box.append(h('p', null, h('a', { href: `/l/${created.id}` }, tr('wait.openPage'))));
+        if (created.notice) box.append(h('p', { class: 'small' }, tr('wait.mail')));
         loadOfferings();
         clearDraftMarker();
         return true;
       }
       if (o.status === 'rejected' || o.status === 'failed') {
-        line.textContent = 'The guardian kept it back. Only you can see why:';
+        line.textContent = tr('wait.refused');
         box.append(
-          h('p', { class: 'reason' }, o.reason || 'No reason was given.'),
-          h('button', { type: 'button', onclick: () => compose(back) }, 'Change it and try again'),
+          h('p', { class: 'reason' }, o.reason || tr('wait.noReason')),
+          h('button', { type: 'button', onclick: () => compose(back) }, tr('wait.retry')),
         );
         return true;
       }
-      line.textContent = o.reviewing
-        ? 'The guardian is reading it now.'
-        : o.queueAhead > 0
-          ? `Waiting for the guardian. ${o.queueAhead} ${o.queueAhead === 1 ? 'offering is' : 'offerings are'} ahead of yours.`
-          : 'Waiting for the guardian. Yours is next.';
+      line.textContent = o.reviewing ? tr('wait.reading') : o.queueAhead > 0 ? tr('wait.ahead', { n: o.queueAhead }) : tr('wait.next');
       return false;
     };
 
@@ -332,36 +382,143 @@
   }
 
   // ---------- search ----------
-  $('#search').addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const q = $('#q').value.trim();
-    const ol = $('#results');
-    if (q.length < 2) return;
-    ol.hidden = false;
-    ol.replaceChildren(h('li', { class: 'small' }, 'Looking…'));
-    try {
-      const { results } = await api(`/api/geo/search?q=${encodeURIComponent(q)}&lang=${browserLang}`);
-      ol.replaceChildren(...(results.length ? results.map((r) => h('li', null,
-        h('button', { type: 'button', onclick: () => {
-          ol.hidden = true;
-          map.flyTo({ center: [r.lng, r.lat], zoom: 16, duration: reduceMotion ? 0 : 2200 });
-          compose({ lng: r.lng, lat: r.lat, place: r.name });
-        } }, r.name))) : [h('li', { class: 'small' }, 'Nothing found by that name.')]));
-    } catch (e) {
-      ol.replaceChildren(h('li', { class: 'small' }, e.message));
+  // While typing: suggestions from Photon (300 ms after the last key). Enter: Photon and
+  // Nominatim together, or the highlighted suggestion. Coordinates are understood as they are.
+  const qInput = $('#q');
+  const resultsEl = $('#results');
+  const stateEl = $('#search-state');
+  let results = [];
+  let active = -1;
+  let typingTimer = 0;
+  let controller = null;
+  let lastAsked = '';
+
+  // Places big enough that a single point would be a guess: zoom there and let the person touch.
+  const BROAD = { country: 4.5, state: 6, city: 12, village: 13.5, district: 14.5 };
+
+  function setState(text) {
+    stateEl.textContent = text || '';
+    stateEl.hidden = !text;
+  }
+
+  function closeResults() {
+    if (!resultsEl.hidden && view.hidden) panel.classList.remove('tall');
+    resultsEl.hidden = true;
+    qInput.setAttribute('aria-expanded', 'false');
+    qInput.removeAttribute('aria-activedescendant');
+    active = -1;
+  }
+
+  function highlight(i) {
+    const items = resultsEl.querySelectorAll('[role="option"]');
+    active = Math.max(-1, Math.min(items.length - 1, i));
+    items.forEach((el, j) => el.setAttribute('aria-selected', String(j === active)));
+    if (active >= 0) { qInput.setAttribute('aria-activedescendant', items[active].id); items[active].scrollIntoView({ block: 'nearest' }); }
+    else qInput.removeAttribute('aria-activedescendant');
+  }
+
+  function describe(r) {
+    if (r.kind === 'coords') return tr('search.coords');
+    const kind = tr(`kind.${r.kind}`);
+    const kindWord = kind === `kind.${r.kind}` ? '' : kind;
+    return [kindWord, r.context].filter(Boolean).join(' · ');
+  }
+
+  function showResults(list) {
+    results = list;
+    resultsEl.replaceChildren(...list.map((r, i) => h('li', {
+      id: `place-${i}`, role: 'option', 'aria-selected': 'false',
+      onmousedown: (ev) => ev.preventDefault(), // keep focus in the field until the choice is made
+      onclick: () => choose(r),
+    }, h('span', { class: 'r-name' }, r.name), h('span', { class: 'r-context' }, describe(r)))));
+    resultsEl.hidden = list.length === 0;
+    // On a phone the sheet grows while there is a list to read, and shrinks back after.
+    if (list.length && narrow()) panel.classList.add('tall');
+    qInput.setAttribute('aria-expanded', String(list.length > 0));
+    active = -1;
+  }
+
+  function choose(r) {
+    closeResults();
+    setState('');
+    qInput.blur();
+    const broadZoom = BROAD[r.kind];
+    if (broadZoom) {
+      map.flyTo({ center: [r.lng, r.lat], zoom: broadZoom, duration: reduceMotion ? 0 : 2200 });
+      setState(tr('search.touch', { name: r.name }));
+      return;
     }
+    map.flyTo({ center: [r.lng, r.lat], zoom: r.kind === 'street' ? 16 : 17, duration: reduceMotion ? 0 : 2200 });
+    compose({ lng: r.lng, lat: r.lat, place: r.label || '' });
+  }
+
+  async function runSearch(mode) {
+    const q = qInput.value.trim();
+    if (q.length < 2) { closeResults(); setState(''); return; }
+    if (controller) controller.abort();
+    controller = new AbortController();
+    const asked = `${mode}:${q}`;
+    lastAsked = asked;
+    const params = new URLSearchParams({ q, mode, lang: I18N.lang });
+    if (map) {
+      const c = map.getCenter();
+      params.set('lat', c.lat.toFixed(3));
+      params.set('lng', c.lng.toFixed(3));
+      params.set('z', map.getZoom().toFixed(1));
+    }
+    if (mode === 'full') setState(tr('search.looking'));
+    try {
+      const res = await fetch(`/api/geo/search?${params}`, { signal: controller.signal });
+      const data = await res.json().catch(() => ({}));
+      if (lastAsked !== asked) return;
+      if (!res.ok) throw new Error(data.error || tr('error.generic'));
+      showResults(data.results || []);
+      if (data.results && data.results.length) setState('');
+      else if (data.degraded) setState(tr('search.down'));
+      else setState(mode === 'suggest' ? tr('search.noneYet') : tr('search.none'));
+      if (mode === 'full' && data.results && data.results.length === 1 && data.results[0].kind === 'coords') choose(data.results[0]);
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      setState(e.message);
+    }
+  }
+
+  qInput.addEventListener('input', () => {
+    clearTimeout(typingTimer);
+    const q = qInput.value.trim();
+    if (q.length < 3) { closeResults(); setState(''); if (controller) controller.abort(); return; }
+    typingTimer = setTimeout(() => runSearch('suggest'), 300);
+  });
+
+  qInput.addEventListener('keydown', (ev) => {
+    if (ev.key === 'ArrowDown' && results.length) { ev.preventDefault(); if (resultsEl.hidden) showResults(results); highlight(active + 1); }
+    else if (ev.key === 'ArrowUp' && results.length) { ev.preventDefault(); highlight(active - 1); }
+    else if (ev.key === 'Escape') { closeResults(); }
+  });
+
+  qInput.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== qInput) closeResults(); }, 150));
+  qInput.addEventListener('focus', () => { if (results.length && qInput.value.trim().length >= 2) showResults(results); });
+
+  $('#search').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    clearTimeout(typingTimer);
+    if (active >= 0 && results[active]) { choose(results[active]); return; }
+    runSearch('full');
   });
 
   // ---------- map ----------
   async function loadOfferings() {
     const data = await api('/api/offerings');
+    remember(data);
     const src = map.getSource('offerings');
     if (src) src.setData(data);
     return data;
   }
 
   function addLayers(data) {
-    map.addSource('offerings', { type: 'geojson', data, cluster: true, clusterRadius: 26, clusterMaxZoom: 13 });
+    remember(data);
+    // Points whose 44 px targets would overlap are grouped, so a finger never has to choose.
+    map.addSource('offerings', { type: 'geojson', data, cluster: true, clusterRadius: 40, clusterMaxZoom: 16 });
     map.addLayer({
       id: 'glow', type: 'circle', source: 'offerings', filter: ['!', ['has', 'point_count']],
       paint: {
@@ -391,37 +548,116 @@
         'circle-stroke-width': ['match', ['get', 'kind'], 'letter', 1.5, 0.8],
       },
     });
+    // A thin ring that fades in under the pointer on desktop.
+    map.addLayer({
+      id: 'hover-ring', type: 'circle', source: 'offerings', filter: ['==', ['get', 'id'], ''],
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'],
+          1, ['case', ['has', 'point_count'], ['step', ['get', 'point_count'], 15, 5, 18, 20, 22], 8.5],
+          14, ['case', ['has', 'point_count'], ['step', ['get', 'point_count'], 15, 5, 18, 20, 22], 11]],
+        'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#8a5418', 'circle-stroke-width': 1,
+        'circle-stroke-opacity': 0, 'circle-stroke-opacity-transition': { duration: 220 },
+      },
+    });
+    // Invisible, finger-sized targets for both dots and groups. Queried, never seen.
+    map.addLayer({
+      id: 'hit', type: 'circle', source: 'offerings',
+      paint: { 'circle-radius': HIT_RADIUS, 'circle-color': '#000', 'circle-opacity': 0 },
+    });
 
     // The map stays still: redrawing it for an animation costs battery on phones.
     // The candle that flickers lives on the letter page, in CSS.
 
-    const pointer = (on) => () => { map.getCanvas().style.cursor = on ? 'pointer' : ''; };
-    ['points', 'clusters'].forEach((l) => { map.on('mouseenter', l, pointer(true)); map.on('mouseleave', l, pointer(false)); });
+    let hovered = null;
+    map.on('mousemove', (e) => {
+      const f = nearestHit(e.point)[0];
+      const key = f ? (f.properties.cluster ? `c${f.properties.cluster_id}` : f.properties.id) : null;
+      map.getCanvas().style.cursor = f ? 'pointer' : '';
+      if (key === hovered) return;
+      hovered = key;
+      if (f) {
+        map.setFilter('hover-ring', f.properties.cluster
+          ? ['==', ['get', 'cluster_id'], f.properties.cluster_id]
+          : ['all', ['!', ['has', 'point_count']], ['==', ['get', 'id'], f.properties.id]]);
+        map.setPaintProperty('hover-ring', 'circle-stroke-opacity', 0.9);
+      } else {
+        map.setPaintProperty('hover-ring', 'circle-stroke-opacity', 0);
+      }
+    });
+    map.getCanvas().addEventListener('mouseleave', () => {
+      hovered = null;
+      map.getCanvas().style.cursor = '';
+      map.setPaintProperty('hover-ring', 'circle-stroke-opacity', 0);
+    });
+  }
+
+  /** Offerings and groups whose finger-sized target covers this screen point, nearest first. */
+  function nearestHit(point) {
+    const r = HIT_RADIUS;
+    const found = map.queryRenderedFeatures([[point.x - r, point.y - r], [point.x + r, point.y + r]], { layers: ['hit'] });
+    const seen = new Set();
+    return found
+      .map((f) => {
+        const p = map.project(coordsOf(f));
+        return { f, d: Math.hypot(p.x - point.x, p.y - point.y) };
+      })
+      .filter(({ f, d }) => {
+        const key = f.properties.cluster ? `c${f.properties.cluster_id}` : f.properties.id;
+        if (d > r + 2 || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => a.d - b.d)
+      .map(({ f }) => f);
+  }
+
+  async function openGroup(f) {
+    const src = map.getSource('offerings');
+    const id = f.properties.cluster_id;
+    const leaves = await src.getClusterLeaves(id, 100, 0).catch(() => []);
+    const first = leaves[0]?.geometry.coordinates;
+    // Everything in the group stands on the same spot: there is nothing to separate, show the list.
+    if (first && leaves.every((l) => meters(first, l.geometry.coordinates) <= SAME_PLACE_M)) {
+      map.flyTo({ center: first, zoom: Math.max(map.getZoom(), 16), duration: reduceMotion ? 0 : 1600 });
+      openPlace(first[0], first[1]);
+      return;
+    }
+    const zoom = await src.getClusterExpansionZoom(id).catch(() => map.getZoom() + 2);
+    ease({ center: f.geometry.coordinates, zoom: Math.min(zoom + 0.5, 18) });
   }
 
   function onMapClick(e) {
-    const clusters = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
-    if (clusters.length) {
-      const f = clusters[0];
-      map.getSource('offerings').getClusterExpansionZoom(f.properties.cluster_id).then((zoom) => {
-        map.easeTo({ center: f.geometry.coordinates, zoom: Math.min(zoom + 0.5, 17), duration: reduceMotion ? 0 : 900 });
-      });
+    const hits = nearestHit(e.point);
+    if (composing && !hits.length) { composing(e.lngLat.lng, e.lngLat.lat); return; }
+    if (!hits.length) { compose({ lng: e.lngLat.lng, lat: e.lngLat.lat }); return; }
+    const first = hits[0];
+    if (first.properties.cluster) { openGroup(first); return; }
+    const at = coordsOf(first);
+    // Two dots under one finger but in different places: come closer instead of guessing.
+    const elsewhere = hits.filter((f) => f.properties.cluster || meters(at, coordsOf(f)) > SAME_PLACE_M);
+    if (elsewhere.length && map.getZoom() < 18) {
+      const all = [first, ...elsewhere].map(coordsOf);
+      const lngs = all.map((c) => c[0]);
+      const lats = all.map((c) => c[1]);
+      map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 80, maxZoom: 18, duration: reduceMotion ? 0 : 900 });
       return;
     }
-    const pad = 8;
-    const hits = map.queryRenderedFeatures([[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]], { layers: ['points'] });
-    if (hits.length) {
-      const [lng, lat] = hits[0].geometry.coordinates;
-      openPlace(lng, lat);
-      return;
-    }
-    compose({ lng: e.lngLat.lng, lat: e.lngLat.lat });
+    openPlace(at[0], at[1]);
   }
+
+  // ---------- language ----------
+  document.addEventListener('geoletter:lang', () => {
+    renderMine();
+    renderRecent();
+    if (!view.hidden && currentPlace && !composing) openPlace(currentPlace.lng, currentPlace.lat);
+    if (results.length && !resultsEl.hidden) showResults(results);
+    if (!stateEl.hidden) setState('');
+  });
 
   async function start() {
     cfg = await api('/api/config').catch(() => cfg);
     const fromHash = /^#(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/.exec(location.hash);
-    const small = innerWidth < 760;
+    const small = narrow();
     map = new maplibregl.Map({
       container: 'map',
       style: 'https://tiles.openfreemap.org/styles/positron',
@@ -435,13 +671,13 @@
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), small ? 'top-right' : 'bottom-right');
     // Keep the interesting part of the map out from under the panel.
     const pad = () => {
-      const narrow = innerWidth < 760;
+      const isNarrow = narrow();
       // On phones the map ends where the sheet begins, so nothing is hidden under it.
       // On wide screens the side panel floats over the map and padding keeps the centre clear.
       const mapEl = document.getElementById('map');
-      const bottom = narrow ? `${panel.offsetHeight}px` : '0px';
+      const bottom = isNarrow ? `${panel.offsetHeight}px` : '0px';
       if (mapEl.style.bottom !== bottom) { mapEl.style.bottom = bottom; map.resize(); }
-      map.setPadding({ left: narrow ? 0 : panel.offsetWidth, top: 0, right: 0, bottom: 0 });
+      map.setPadding({ left: isNarrow ? 0 : panel.offsetWidth, top: 0, right: 0, bottom: 0 });
     };
     pad();
     new ResizeObserver(pad).observe(panel);
