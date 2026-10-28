@@ -11,6 +11,7 @@ import {
   type Verdict,
 } from './moderation.ts';
 import { buildNotice, emailHash, unsubscribeToken, type MailDriver } from './mail.ts';
+import { langFromTag } from './i18n.ts';
 
 const MAX_ATTEMPTS = 3;
 
@@ -122,10 +123,14 @@ export class Guardian {
     try {
       const blocked = !!this.db.prepare('SELECT 1 FROM email_blocklist WHERE email_hash = ?').get(hash);
       if (approved && !blocked) {
+        const langs = this.db.prepare('SELECT lang, lang_hint FROM offerings WHERE id = ?').get(o.id) as
+          | { lang: string | null; lang_hint: string | null }
+          | undefined;
         const notice = buildNotice({
           place: o.place,
           letterUrl: `${config.publicUrl}/l/${o.id}`,
           unsubscribeUrl: `${config.publicUrl}/unsubscribe?e=${hash}&t=${unsubscribeToken(config.secret, hash)}`,
+          lang: langFromTag(langs?.lang || langs?.lang_hint || o.lang_hint),
         });
         await this.mailer.send({ to: pending.email, ...notice });
         status = 'sent';

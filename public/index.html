@@ -1,42 +1,49 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>GeoLetter · a map of offerings for the people we carry</title>
-<meta name="description" content="Leave a marigold, a candle or a letter at a place that belongs to someone, living or gone. Every word is read first by Gemma, running on this server.">
+<title data-i18n="page.title">GeoLetter · a map of offerings for the people we carry</title>
+<meta name="description" data-i18n-attr="content:page.description" content="Leave a marigold, a candle or a letter at a place that belongs to someone, living or gone. Every word is read first by Gemma, running on this server.">
 <meta property="og:title" content="GeoLetter">
-<meta property="og:description" content="Leave a marigold, a candle or a letter at a place that belongs to someone, living or gone.">
+<meta property="og:description" data-i18n-attr="content:intro.lede" content="Leave a marigold, a candle or a letter at a place that belongs to someone, here or gone.">
 <meta name="theme-color" content="#f5efe3">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/fonts/fonts.css">
 <link rel="stylesheet" href="/vendor/maplibre-gl.css">
 <link rel="stylesheet" href="/style.css">
+<script src="/i18n.js"></script>
 </head>
-<body class="map-page">
-<div id="map" aria-label="World map with offerings"></div>
+<body class="map-page" data-live-lang="1">
+<div id="map" data-i18n-attr="aria-label:map.label" aria-label="World map with offerings"></div>
 
 <aside class="panel" id="panel" aria-live="polite">
   <div class="panel-inner" id="panel-inner">
     <section id="intro">
-      <h1 class="wordmark">GeoLetter</h1>
-      <p class="lede">Leave a marigold, a candle or a letter at a place that belongs to someone, here or gone.</p>
+      <div class="panel-top">
+        <h1 class="wordmark">GeoLetter</h1>
+        <p class="lang-switch" role="group" aria-label="Idioma / Language"><button type="button" data-set-lang="pt" lang="pt" aria-pressed="false">PT</button><span aria-hidden="true"> · </span><button type="button" data-set-lang="en" lang="en" aria-pressed="true">EN</button></p>
+      </div>
+      <p class="lede" data-i18n="intro.lede">Leave a marigold, a candle or a letter at a place that belongs to someone, here or gone.</p>
       <form id="search" class="search" role="search">
-        <label for="q" class="visually-hidden">Find a place</label>
-        <input id="q" name="q" type="search" placeholder="Find a place: a street, a town, a plaza" autocomplete="off" maxlength="120">
-        <button type="submit">Find</button>
+        <label for="q" class="visually-hidden" data-i18n="search.label">Find a place</label>
+        <input id="q" name="q" type="search" data-i18n-attr="placeholder:search.placeholder" placeholder="A street, a town, a plaza, or coordinates"
+          autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" maxlength="120"
+          role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="results">
+        <button type="submit" data-i18n="search.button">Find</button>
       </form>
-      <ol id="results" class="results" hidden></ol>
-      <p class="hint">Or touch the map where it happened.</p>
+      <ol id="results" class="results" role="listbox" data-i18n-attr="aria-label:search.label" aria-label="Find a place" hidden></ol>
+      <p id="search-state" class="search-state small" role="status" hidden></p>
+      <p class="hint" data-i18n="intro.hint">Or touch the map where it happened.</p>
       <div id="recent" hidden>
-        <h2>Left recently</h2>
+        <h2 data-i18n="recent.title">Left recently</h2>
         <ul id="recent-list" class="plain"></ul>
       </div>
       <div id="mine" hidden>
-        <h2>What you left</h2>
+        <h2 data-i18n="mine.title">What you left</h2>
         <ul id="mine-list" class="plain"></ul>
       </div>
-      <p class="colophon">Every word is read first by Gemma, an open model running on this server, before anyone else sees it. Letters never leave this machine to be read.</p>
+      <p class="colophon" data-i18n="colophon">Every word is read first by Gemma, an open model running on this server, before anyone else sees it. Letters never leave this machine to be read.</p>
     </section>
     <section id="view" hidden></section>
   </div>
@@ -44,77 +51,78 @@
 
 <template id="compose-tpl">
   <form class="compose" novalidate>
-    <button type="button" class="link close" data-close>Back</button>
-    <h2>Leave something here</h2>
+    <button type="button" class="link close" data-close data-i18n="back">Back</button>
+    <h2 data-i18n="compose.title">Leave something here</h2>
     <label class="field">
-      <span>Place</span>
+      <span data-i18n="compose.place">Place</span>
       <input name="place" maxlength="120" required>
     </label>
+    <p class="small move-hint" data-i18n="compose.move">Not quite the spot? Touch the map or drag the point.</p>
 
     <fieldset class="kinds">
-      <legend>What are you leaving?</legend>
-      <label><input type="radio" name="kind" value="flower" checked> <span>A marigold</span></label>
-      <label><input type="radio" name="kind" value="candle"> <span>A candle</span></label>
-      <label><input type="radio" name="kind" value="letter"> <span>A letter</span></label>
-      <label><input type="radio" name="kind" value="item"> <span>Something of theirs</span></label>
+      <legend data-i18n="compose.what">What are you leaving?</legend>
+      <label><input type="radio" name="kind" value="flower" checked> <span data-i18n="compose.flower">A marigold</span></label>
+      <label><input type="radio" name="kind" value="candle"> <span data-i18n="compose.candle">A candle</span></label>
+      <label><input type="radio" name="kind" value="letter"> <span data-i18n="compose.letter">A letter</span></label>
+      <label><input type="radio" name="kind" value="item"> <span data-i18n="compose.item">Something of theirs</span></label>
     </fieldset>
 
     <label class="field">
-      <span>For</span>
-      <input name="to" maxlength="60" placeholder="Abuela Chayo, my brother, Mr. Okafor">
+      <span data-i18n="compose.for">For</span>
+      <input name="to" maxlength="60" data-i18n-attr="placeholder:compose.forHolder" placeholder="Abuela Chayo, my brother, Mr. Okafor">
     </label>
 
     <div data-for="item" hidden>
       <label class="field">
-        <span>What you are leaving</span>
-        <input name="item" maxlength="280" placeholder="his blue harmonica, a cup of black coffee">
+        <span data-i18n="compose.itemLabel">What you are leaving</span>
+        <input name="item" maxlength="280" data-i18n-attr="placeholder:compose.itemHolder" placeholder="his blue harmonica, a cup of black coffee">
       </label>
     </div>
 
     <div data-for="flower candle" class="field">
-      <label for="note-input"><span>A line, if you want</span></label>
-      <input id="note-input" name="note" maxlength="280" placeholder="Optional">
+      <label for="note-input"><span data-i18n="compose.note">A line, if you want</span></label>
+      <input id="note-input" name="note" maxlength="280" data-i18n-attr="placeholder:compose.optional" placeholder="Optional">
     </div>
 
     <div data-for="letter" hidden>
       <details class="assist">
-        <summary>Help me find the words</summary>
-        <p class="small">Write what you remember, loose, in any language. Gemma turns it into a first draft using only what you wrote. You change it before leaving it.</p>
-        <textarea name="notes" rows="4" maxlength="1500" placeholder="she sang off-key on Sundays; the mango tree in Bauru; I was twelve"></textarea>
-        <button type="button" data-draft>Write a draft from this</button>
+        <summary data-i18n="compose.assist">Help me find the words</summary>
+        <p class="small" data-i18n="compose.assistText">Write what you remember, loose, in any language. Gemma turns it into a first draft using only what you wrote. You change it before leaving it.</p>
+        <textarea name="notes" rows="4" maxlength="1500" data-i18n-attr="placeholder:compose.notesHolder" placeholder="she sang off-key on Sundays; the mango tree in Bauru; I was twelve"></textarea>
+        <button type="button" data-draft data-i18n="compose.draft">Write a draft from this</button>
         <p class="small state" data-draft-state hidden></p>
       </details>
       <label class="field">
-        <span>The letter</span>
+        <span data-i18n="compose.body">The letter</span>
         <textarea name="body" rows="9" maxlength="2000"></textarea>
         <span class="count" data-count>0 / 2000</span>
       </label>
       <label class="check">
         <input type="checkbox" name="locked">
-        <span>Seal it to this place. It only opens for someone standing within
-          <select name="radius" aria-label="Distance">
+        <span><span data-i18n="compose.sealA">Seal it to this place. It only opens for someone standing within</span>
+          <select name="radius" data-i18n-attr="aria-label:compose.distance" aria-label="Distance">
             <option value="100">100 m</option>
             <option value="200" selected>200 m</option>
             <option value="500">500 m</option>
             <option value="1000">1 km</option>
           </select>
-          of here.</span>
+          <span data-i18n="compose.sealB">of here.</span></span>
       </label>
       <label class="field">
-        <span>If they are alive, their email (optional)</span>
-        <input name="email" type="email" maxlength="254" autocomplete="off" placeholder="name@example.com">
-        <span class="small">They get one short note saying a letter waits for them here, with a link. Never the letter itself. The address is forgotten once the note is sent.</span>
+        <span data-i18n="compose.email">If they are alive, their email (optional)</span>
+        <input name="email" type="email" maxlength="254" autocomplete="off" data-i18n-attr="placeholder:compose.emailHolder" placeholder="name@example.com">
+        <span class="small" data-i18n="compose.emailNote">They get one short note saying a letter waits for them here, with a link. Never the letter itself. The address is forgotten once the note is sent.</span>
       </label>
     </div>
 
     <label class="field">
-      <span>From</span>
-      <input name="from" maxlength="60" placeholder="Optional. A first name is enough.">
+      <span data-i18n="compose.from">From</span>
+      <input name="from" maxlength="60" data-i18n-attr="placeholder:compose.fromHolder" placeholder="Optional. A first name is enough.">
     </label>
 
     <p class="error" data-error role="alert" hidden></p>
-    <p class="submit-row"><button type="submit" class="primary" data-submit>Leave the marigold</button></p>
-    <p class="small">Anything written waits for the guardian first. Phone numbers, addresses and other people's private details are turned away.</p>
+    <p class="submit-row"><button type="submit" class="primary" data-submit data-i18n="submit.flower">Leave the marigold</button></p>
+    <p class="small" data-i18n="compose.foot">Anything written waits for the guardian first. Phone numbers, addresses and other people's private details are turned away.</p>
   </form>
 </template>
 

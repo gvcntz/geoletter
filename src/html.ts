@@ -1,4 +1,5 @@
 import type { Offering } from './db.ts';
+import { t, type Lang } from './i18n.ts';
 
 export function esc(value: unknown): string {
   return String(value ?? '').replace(
@@ -43,11 +44,19 @@ export interface PageOpts {
   main: string;
   scripts?: string[];
   noindex?: boolean;
+  lang: Lang;
+}
+
+/** "PT · EN". Works with i18n.js, which keeps the choice in localStorage and a cookie. */
+export function langSwitch(lang: Lang): string {
+  const b = (l: Lang) =>
+    `<button type="button" data-set-lang="${l}" lang="${l}"${l === lang ? ' aria-pressed="true"' : ' aria-pressed="false"'}>${l.toUpperCase()}</button>`;
+  return `<p class="lang-switch" role="group" aria-label="Idioma / Language">${b('pt')}<span aria-hidden="true"> · </span>${b('en')}</p>`;
 }
 
 export function page(o: PageOpts): string {
   return `<!doctype html>
-<html lang="en">
+<html lang="${o.lang === 'pt' ? 'pt-BR' : 'en'}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -63,20 +72,23 @@ ${o.description ? `<meta property="og:description" content="${esc(o.description)
 </head>
 <body class="${esc(o.bodyClass ?? '')}">
 ${o.main}
+<script src="/i18n.js"></script>
 ${(o.scripts ?? []).map((s) => `<script src="${esc(s)}" defer></script>`).join('\n')}
 </body>
 </html>`;
 }
 
-const KIND_LINE: Record<string, (to: string) => string> = {
-  flower: (to) => (to ? `A marigold for ${to}` : 'A marigold'),
-  candle: (to) => (to ? `A candle for ${to}` : 'A candle'),
-  item: (to) => (to ? `Something left for ${to}` : 'Something left here'),
-  letter: (to) => (to ? `A letter for ${to}` : 'A letter'),
-};
+const KINDS = ['flower', 'candle', 'item', 'letter'] as const;
 
-export function offeringTitle(o: Pick<Offering, 'kind' | 'to_name'>): string {
-  return (KIND_LINE[o.kind] ?? KIND_LINE.letter)(o.to_name);
+export function offeringTitle(o: Pick<Offering, 'kind' | 'to_name'>, lang: Lang = 'en'): string {
+  const kind = (KINDS as readonly string[]).includes(o.kind) ? o.kind : 'letter';
+  return t(lang, `title.${kind}` as 'title.letter', { to: o.to_name });
+}
+
+/** A refusal reason comes from Gemma in the author's own language; a failure is ours to word. */
+export function authorReason(o: Pick<Offering, 'status' | 'mod_reason'>, lang: Lang): string {
+  if (o.status === 'failed') return t(lang, 'guardianFailed');
+  return o.mod_reason || t(lang, 'noReason');
 }
 
 export interface LetterView {
@@ -85,33 +97,34 @@ export interface LetterView {
   demo: boolean;
   author: boolean;
   queueAhead: number;
+  lang: Lang;
 }
 
 function authorNote(v: LetterView): string {
-  const { o } = v;
+  const { o, lang } = v;
   if (!v.author) return '';
   if (o.status === 'queued') {
     const ahead =
-      v.queueAhead === 0
-        ? 'Yours is the next one she reads.'
-        : `There ${v.queueAhead === 1 ? 'is 1 offering' : `are ${v.queueAhead} offerings`} ahead of yours.`;
-    return `<div class="note" data-status="queued" role="status"><p>Your ${esc(o.kind)} is with the guardian.
-Gemma reads everything before it goes on the map. ${ahead} This page updates by itself.</p></div>`;
+      v.queueAhead === 0 ? t(lang, 'aheadNone') : v.queueAhead === 1 ? t(lang, 'aheadOne') : t(lang, 'aheadMany', { n: v.queueAhead });
+    const kind = t(lang, `kind.${o.kind}` as 'kind.letter');
+    return `<div class="note" data-status="queued" role="status"><p>${esc(t(lang, 'queued', { kind, ahead }))}</p></div>`;
   }
   if (o.status === 'rejected' || o.status === 'failed') {
-    return `<div class="note refused" data-status="${esc(o.status)}" role="status"><p>The guardian kept this back. Only you can see it.</p>
-<p class="reason">${esc(o.mod_reason || 'No reason was given.')}</p>
-<p>You can copy the text below, change it, and leave it again from the map.</p></div>`;
+    return `<div class="note refused" data-status="${esc(o.status)}" role="status"><p>${esc(t(lang, 'refused'))}</p>
+<p class="reason">${esc(authorReason(o, lang))}</p>
+<p>${esc(t(lang, 'refusedHow'))}</p></div>`;
   }
-  return `<div class="note" data-status="approved"><p>The guardian let it through. It is on the map now. Keep this address if you want to come back to it.</p></div>`;
+  return `<div class="note" data-status="approved"><p>${esc(t(lang, 'approved'))}</p></div>`;
 }
 
 export function letterPage(v: LetterView): string {
   const { o } = v;
+  const ui = v.lang;
+  // The letter keeps its own language; the words around it follow the reader.
   const lang = o.lang || o.lang_hint || 'en';
   const date = formatDate(o.created_at, lang);
-  const title = offeringTitle(o);
-  const place = o.place || 'a place on the map';
+  const title = offeringTitle(o, ui);
+  const place = o.place || t(ui, 'somePlace');
   const isLetter = o.kind === 'letter';
   const showText = v.open || v.author;
 
@@ -119,11 +132,11 @@ export function letterPage(v: LetterView): string {
   if (!showText) {
     sheet = `<section class="sheet sealed" aria-live="polite">
 ${SEALED_SVG}
-<p class="sealed-line">This letter waits for whoever passes by.</p>
-<p class="sealed-sub">It only opens for someone standing within ${esc(o.lock_radius_m)} m of ${esc(place)}.</p>
+<p class="sealed-line">${esc(t(ui, 'sealedLine'))}</p>
+<p class="sealed-sub">${esc(t(ui, 'sealedSub', { r: o.lock_radius_m, place }))}</p>
 <p class="distance" id="distance" hidden></p>
-<p class="actions"><button type="button" id="open-here">I am here. Open it</button>
-${v.demo ? '<button type="button" class="quiet" id="open-demo">Demo: open as if I were there</button>' : ''}</p>
+<p class="actions"><button type="button" id="open-here">${esc(t(ui, 'openHere'))}</button>
+${v.demo ? `<button type="button" class="quiet" id="open-demo">${esc(t(ui, 'openDemo'))}</button>` : ''}</p>
 <p class="geo-error" id="geo-error" hidden></p>
 <div id="opened" hidden></div>
 </section>`;
@@ -131,14 +144,14 @@ ${v.demo ? '<button type="button" class="quiet" id="open-demo">Demo: open as if 
     const kindMark = o.kind === 'candle' ? CANDLE_SVG : o.kind === 'flower' ? MARIGOLD_SVG : '';
     sheet = `<article class="sheet${isLetter ? '' : ' small-offering'}" lang="${esc(lang)}">
 <p class="dateline">${esc(place)}<br>${esc(date)}</p>
-${isLetter ? '' : `<p class="addressee">${esc(title)}</p>`}
+${isLetter ? '' : `<p class="addressee" lang="${ui}">${esc(title)}</p>`}
 ${kindMark}
 ${o.body ? `<div class="letter-body" id="letter-body">${esc(o.body)}</div>` : ''}
 ${o.from_name ? `<p class="signature">${esc(o.from_name)}</p>` : ''}
 </article>`;
   }
 
-  const main = `<header class="topline"><a href="/" class="wordmark">GeoLetter</a><a href="/#${o.lat.toFixed(5)},${o.lng.toFixed(5)}" class="back">Back to the map</a></header>
+  const main = `<header class="topline"><a href="/" class="wordmark">GeoLetter</a><span class="topline-right"><a href="/#${o.lat.toFixed(5)},${o.lng.toFixed(5)}" class="back">${esc(t(ui, 'backToMap'))}</a>${langSwitch(ui)}</span></header>
 <main class="letter-page" id="letter" data-id="${esc(o.id)}" data-lang="${esc(lang)}" data-kind="${esc(o.kind)}"
  data-status="${esc(o.status)}" data-open="${showText ? '1' : '0'}" data-locked="${o.locked ? '1' : '0'}"
  data-lat="${o.lat}" data-lng="${o.lng}" data-radius="${esc(o.lock_radius_m)}" data-demo="${v.demo ? '1' : '0'}">
@@ -146,14 +159,15 @@ ${authorNote(v)}
 ${sheet}
 <footer class="letter-foot">
 ${MARIGOLD_SVG}
-<p>${isLetter && o.to_name ? `Left for ${esc(o.to_name)} at ${esc(place)}` : `Left at ${esc(place)}`}${o.locked ? ', sealed to the place' : ''}.</p>
+<p>${esc(isLetter && o.to_name ? t(ui, 'leftFor', { to: o.to_name, place }) : t(ui, 'leftAt', { place }))}${o.locked ? esc(t(ui, 'sealedToPlace')) : ''}.</p>
 ${isLetter && o.status === 'approved' ? '<p><button type="button" class="link" id="translate" hidden></button></p><p class="translate-state" id="translate-state" hidden></p>' : ''}
-${o.is_example ? '<p class="example">This is an example offering. The people in it are invented.</p>' : ''}
+${o.is_example ? `<p class="example">${esc(t(ui, 'exampleNote'))}</p>` : ''}
 </footer>
 </main>`;
 
-  const description = v.open && !o.locked ? `${title}, left at ${place}.` : `${title}, waiting at ${place}.`;
+  const description = `${title} · ${place}`;
   return page({
+    lang: ui,
     title: `${title} · GeoLetter`,
     description,
     bodyClass: 'paper',
@@ -163,12 +177,13 @@ ${o.is_example ? '<p class="example">This is an example offering. The people in 
   });
 }
 
-export function messagePage(title: string, html: string, status = ''): string {
+export function messagePage(lang: Lang, title: string, html: string, status = ''): string {
   return page({
+    lang,
     title: `${title} · GeoLetter`,
     bodyClass: 'paper',
     noindex: true,
-    main: `<header class="topline"><a href="/" class="wordmark">GeoLetter</a></header>
+    main: `<header class="topline"><a href="/" class="wordmark">GeoLetter</a>${langSwitch(lang)}</header>
 <main class="letter-page"><section class="sheet message${status ? ' ' + esc(status) : ''}">
 <h1>${esc(title)}</h1>${html}</section></main>`,
   });

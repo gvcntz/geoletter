@@ -5,9 +5,13 @@
   if (!root) return;
   const id = root.dataset.id;
   const key = new URLSearchParams(location.search).get('k');
-  const browserLang = (navigator.language || 'en').slice(0, 2).toLowerCase();
+  const I18N = window.GeoI18n;
+  const tr = (key, params) => I18N.tr(key, params);
+  // A letter is offered in the reader's language: the one chosen with "PT · EN", otherwise the
+  // browser's own (which may be Spanish, Japanese…). The letter itself is never changed.
+  const browserLang = I18N.chosen ? I18N.lang : (navigator.language || 'en').slice(0, 2).toLowerCase();
   const LANG_NAMES = { en: 'English', pt: 'Portuguese', es: 'Spanish', fr: 'French', de: 'German', it: 'Italian', ja: 'Japanese', zh: 'Chinese', ko: 'Korean', nl: 'Dutch', pl: 'Polish', tr: 'Turkish', ru: 'Russian', uk: 'Ukrainian', hi: 'Hindi', ar: 'Arabic', tl: 'Tagalog', vi: 'Vietnamese', id: 'Indonesian', sv: 'Swedish' };
-  const langName = (l) => { try { return new Intl.DisplayNames([browserLang], { type: 'language' }).of(l); } catch { return LANG_NAMES[l] || l; } };
+  const langName = (l) => { try { return new Intl.DisplayNames([I18N.locale()], { type: 'language' }).of(l); } catch { return LANG_NAMES[l] || l; } };
   let reader = null;
 
   async function api(path, opts = {}) {
@@ -17,14 +21,14 @@
       body: opts.body ? JSON.stringify(opts.body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Something went wrong. Try again in a moment.');
+    if (!res.ok) throw new Error(data.error || tr('error.generic'));
     return data;
   }
 
   function fmtDistance(m) {
     if (m < 1000) return `${Math.round(m)} m`;
-    if (m < 100000) return `${(m / 1000).toFixed(1)} km`;
-    return `${Math.round(m / 1000).toLocaleString('en')} km`;
+    if (m < 100000) return `${(m / 1000).toLocaleString(I18N.locale(), { maximumFractionDigits: 1 })} km`;
+    return `${Math.round(m / 1000).toLocaleString(I18N.locale())} km`;
   }
 
   // ---------- author: wait for the guardian ----------
@@ -34,7 +38,7 @@
         const o = await api(`/api/offerings/${id}?k=${encodeURIComponent(key)}`);
         if (o.status !== 'queued') { location.reload(); return; }
         const note = root.querySelector('.note p');
-        if (note && o.reviewing) note.textContent = 'The guardian is reading it now. This page updates by itself.';
+        if (note && o.reviewing) note.textContent = tr('letter.reading');
       } catch { /* try again */ }
       setTimeout(poll, 2500);
     };
@@ -79,9 +83,9 @@
     if (o.open) { renderOpened(o); return; }
     dist.hidden = false;
     dist.textContent = o.distance !== null
-      ? `You are about ${fmtDistance(o.distance)} away. Come within ${o.radius} m and it will open.`
-      : 'We could not tell where you are.';
-    if (demo) dist.textContent += ' Demo mode is not on for this browser.';
+      ? tr('letter.distance', { d: fmtDistance(o.distance), r: o.radius })
+      : tr('letter.noPosition');
+    if (demo) dist.textContent += tr('letter.demoOff');
   }
 
   const openHere = document.getElementById('open-here');
@@ -89,21 +93,21 @@
     const err = document.getElementById('geo-error');
     openHere.addEventListener('click', () => {
       err.hidden = true;
-      if (!navigator.geolocation) { err.hidden = false; err.textContent = 'This browser cannot tell where you are.'; return; }
+      if (!navigator.geolocation) { err.hidden = false; err.textContent = tr('letter.noGeo'); return; }
       openHere.disabled = true;
-      openHere.textContent = 'Finding where you are…';
+      openHere.textContent = tr('letter.finding');
       navigator.geolocation.getCurrentPosition(
         async (p) => {
           reader = { lat: p.coords.latitude, lng: p.coords.longitude };
           try { await tryOpen(reader); } catch (e) { err.hidden = false; err.textContent = e.message; }
           openHere.disabled = false;
-          openHere.textContent = 'Try again from here';
+          openHere.textContent = tr('letter.tryAgain');
         },
         () => {
           err.hidden = false;
-          err.textContent = 'Your browser did not share your position, so the letter stays sealed.';
+          err.textContent = tr('letter.denied');
           openHere.disabled = false;
-          openHere.textContent = 'I am here. Open it';
+          openHere.textContent = tr('letter.openHere');
         },
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 },
       );
@@ -130,7 +134,7 @@
     let translated = null;
     let showing = 'original';
     btn.hidden = false;
-    btn.textContent = `Read it in ${langName(browserLang)}`;
+    btn.textContent = tr('letter.readIn', { lang: langName(browserLang) });
 
     const swap = (text, lang) => {
       body.classList.add('fading');
@@ -145,14 +149,14 @@
       if (showing === 'translated') {
         swap(originalText, original);
         showing = 'original';
-        btn.textContent = `Read it in ${langName(browserLang)}`;
+        btn.textContent = tr('letter.readIn', { lang: langName(browserLang) });
         state.hidden = true;
         return;
       }
       if (!translated) {
         btn.disabled = true;
         state.hidden = false;
-        state.textContent = 'Gemma is translating it here on the server. The first time takes a little while; after that it is kept.';
+        state.textContent = tr('letter.translating');
         try {
           const q = key ? `?k=${encodeURIComponent(key)}` : '';
           const r = await api(`/api/offerings/${id}/translate${q}`, { method: 'POST', body: { to: browserLang, ...(reader || {}) } });
@@ -166,9 +170,9 @@
       }
       swap(translated, browserLang);
       showing = 'translated';
-      btn.textContent = `Back to the ${langName(original)} original`;
+      btn.textContent = tr('letter.backTo', { lang: langName(original) });
       state.hidden = false;
-      state.textContent = `Translated by Gemma from ${langName(original)}.`;
+      state.textContent = tr('letter.translatedFrom', { lang: langName(original) });
     });
   }
   setupTranslate();

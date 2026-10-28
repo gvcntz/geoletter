@@ -13,7 +13,10 @@ import {
 import { RateLimiter } from './ratelimit.ts';
 import { makeProviders, reversePlace } from './nominatim.ts';
 import { searchPlaces, type Bias } from './places.ts';
-import { esc, letterPage, messagePage, offeringTitle } from './html.ts';
+import { authorReason, esc, letterPage, messagePage, offeringTitle } from './html.ts';
+import { hasKey, pickLang, t, type Key, type Lang } from './i18n.ts';
+// The map page's words live in public/i18n.js so the browser and the server share one dictionary.
+import '../public/i18n.js';
 import { llmQueue, ollamaHealth } from './ollama.ts';
 
 const PUBLIC_DIR = resolve(import.meta.dirname, '..', 'public');
@@ -50,10 +53,37 @@ const MIME: Record<string, string> = {
 
 class HttpError extends Error {
   status: number;
-  constructor(status: number, message: string) {
-    super(message);
+  key: Key;
+  params: Record<string, string | number>;
+  constructor(status: number, key: Key, params: Record<string, string | number> = {}) {
+    super(t('en', key, params));
     this.status = status;
+    this.key = key;
+    this.params = params;
   }
+  /** Worded for whoever asked: the "PT · EN" choice, or the browser's language. */
+  text(lang: Lang): string {
+    const params = { ...this.params };
+    if (typeof params.what === 'string' && hasKey(`what.${params.what}`)) params.what = t(lang, `what.${params.what}` as Key);
+    return t(lang, this.key, params);
+  }
+}
+
+const UI = (globalThis as unknown as { GeoI18n: { t(lang: string, key: string, params?: object): string } }).GeoI18n;
+
+/** Sends the map page already in the reader's language, so nothing flashes in English first. */
+export function localizeIndex(src: string, lang: Lang): string {
+  const tr = (key: string) => esc(UI.t(lang, key));
+  let out = src.replace('<html lang="en" data-lang="en">', `<html lang="${lang === 'pt' ? 'pt-BR' : 'en'}" data-lang="${lang}">`);
+  out = out.replace(/(<(\w+)\b[^>]*\sdata-i18n="([\w.]+)"[^>]*>)([^<]*)(<\/\2>)/g, (_m, open: string, _tag, key: string, _old, close: string) => open + tr(key) + close);
+  out = out.replace(/<[^>]*\sdata-i18n-attr="([^"]+)"[^>]*>/g, (tag: string, spec: string) => {
+    for (const pair of spec.split(';')) {
+      const [attr, key] = pair.split(':').map((x) => x.trim());
+      if (attr && key) tag = tag.replace(new RegExp(`(\\s${attr}=")[^"]*(")`), (_m, a: string, b: string) => a + tr(key) + b);
+    }
+    return tag;
+  });
+  return out.replace(/data-set-lang="(pt|en)"([^>]*?)aria-pressed="(?:true|false)"/g, (_m, l: string, mid: string) => `data-set-lang="${l}"${mid}aria-pressed="${l === lang}"`);
 }
 
 // ---------- helpers ----------
@@ -92,6 +122,11 @@ function hmac(label: string, value: string): string {
 
 const senderHash = (req: IncomingMessage) => hmac('ip', clientIp(req)).slice(0, 32);
 
+function reqLang(req: IncomingMessage): Lang {
+  const al = req.headers['accept-language'];
+  return pickLang(cookies(req).gl_lang, typeof al === 'string' ? al : '');
+}
+
 function safeEqual(a: string, b: string): boolean {
   const x = Buffer.from(a);
   const y = Buffer.from(b);
@@ -117,12 +152,12 @@ function isDemo(req: IncomingMessage): boolean {
 
 async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
   const type = req.headers['content-type'] ?? '';
-  if (!type.startsWith('application/json')) throw new HttpError(415, 'Send JSON.');
+  if (!type.startsWith('application/json')) throw new HttpError(415, 'sendJson');
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     size += (chunk as Buffer).length;
-    if (size > MAX_BODY_BYTES) throw new HttpError(413, 'That is too long.');
+    if (size > MAX_BODY_BYTES) throw new HttpError(413, 'bodyTooBig');
     chunks.push(chunk as Buffer);
   }
   try {
@@ -130,7 +165,7 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
     if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error();
     return data as Record<string, unknown>;
   } catch {
-    throw new HttpError(400, 'That did not arrive in one piece.');
+    throw new HttpError(400, 'badJson');
   }
 }
 
@@ -167,7 +202,7 @@ const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 function rateLimit(limiter: RateLimiter, req: IncomingMessage, what: string): void {
   const wait = limiter.take(clientIp(req));
   if (wait > 0) {
-    throw new HttpError(429, `Too many ${what} from here. Try again in ${Math.ceil(wait / 60)} min.`);
+    throw new HttpError(429, 'tooMany', { what, min: Math.ceil(wait / 60) });
   }
 }
 
@@ -202,7 +237,7 @@ export function createApp(db: DB, mailer: MailDriver) {
 
   const isAuthor = (o: Offering, key: string | null) => !!key && safeEqual(sha256(key), o.author_key_hash);
 
-  function publicSummary(o: Offering, reader: { lat?: number; lng?: number } | null, demo: boolean) {
+  function publicSummary(o: Offering, reader: { lat?: number; lng?: number } | null, demo: boolean, lang: Lang) {
     const lock = checkLock(o, reader, demo);
     const text = lock.open ? o.body : '';
     return {
@@ -221,7 +256,7 @@ export function createApp(db: DB, mailer: MailDriver) {
       distance: lock.distance === null ? null : Math.round(lock.distance),
       excerpt: text.length > 180 ? text.slice(0, 180).replace(/\s+\S*$/, '') + '…' : text,
       example: !!o.is_example,
-      title: offeringTitle(o),
+      title: offeringTitle(o, lang),
     };
   }
 
@@ -229,27 +264,27 @@ export function createApp(db: DB, mailer: MailDriver) {
     rateLimit(limits.create, req, 'offerings');
     const b = await readJson(req);
     const kind = b.kind as Kind;
-    if (!KINDS.includes(kind)) throw new HttpError(400, 'Choose a flower, a candle, a letter or something else.');
+    if (!KINDS.includes(kind)) throw new HttpError(400, 'chooseKind');
     const lat = typeof b.lat === 'number' ? b.lat : NaN;
     const lng = typeof b.lng === 'number' ? b.lng : NaN;
-    if (!isValidLatLng(lat, lng)) throw new HttpError(400, 'Pick a place on the map first.');
+    if (!isValidLatLng(lat, lng)) throw new HttpError(400, 'pickPlace');
 
     const maxBody = kind === 'letter' ? LIMITS.body : LIMITS.note;
-    if (tooLong(b.body, maxBody)) throw new HttpError(400, `Keep it under ${maxBody} characters.`);
-    if (tooLong(b.to, LIMITS.name) || tooLong(b.from, LIMITS.name)) throw new HttpError(400, `Names can have up to ${LIMITS.name} characters.`);
+    if (tooLong(b.body, maxBody)) throw new HttpError(400, 'keepUnder', { n: maxBody });
+    if (tooLong(b.to, LIMITS.name) || tooLong(b.from, LIMITS.name)) throw new HttpError(400, 'namesMax', { n: LIMITS.name });
     const place = cleanText(b.place, LIMITS.place);
     const to = cleanText(b.to, LIMITS.name);
     const from = cleanText(b.from, LIMITS.name);
     const body = cleanText(b.body, maxBody, kind === 'letter');
-    if (kind === 'letter' && body.length < 2) throw new HttpError(400, 'The letter is empty.');
-    if (kind === 'item' && body.length < 2) throw new HttpError(400, 'Say what you are leaving.');
+    if (kind === 'letter' && body.length < 2) throw new HttpError(400, 'letterEmpty');
+    if (kind === 'item' && body.length < 2) throw new HttpError(400, 'sayWhat');
 
     const locked = kind === 'letter' && b.locked === true;
     let radius = typeof b.radius === 'number' ? Math.round(b.radius) : config.lockRadiusDefault;
     radius = Math.min(5000, Math.max(50, radius));
 
     const email = kind === 'letter' && typeof b.email === 'string' ? b.email.trim() : '';
-    if (email && !isPlausibleEmail(email)) throw new HttpError(400, 'That email address does not look right.');
+    if (email && !isPlausibleEmail(email)) throw new HttpError(400, 'badEmail');
     const sender = senderHash(req);
     let recipientHash = '';
     if (email) {
@@ -257,10 +292,10 @@ export function createApp(db: DB, mailer: MailDriver) {
       const check = checkEmailAllowed(db, sender, recipientHash, config.emailDailyLimit);
       // A blocked address is not reported back: that would tell strangers who opted out.
       if (!check.ok && check.reason === 'sender_limit') {
-        throw new HttpError(429, `You have already sent ${config.emailDailyLimit} notices today. Leave the letter without an email, or try again tomorrow.`);
+        throw new HttpError(429, 'senderLimit', { n: config.emailDailyLimit });
       }
       if (!check.ok && check.reason === 'recipient_limit') {
-        throw new HttpError(429, 'This person was already told about a letter today. Leave it without an email, or try again tomorrow.');
+        throw new HttpError(429, 'recipientLimit');
       }
     }
 
@@ -270,7 +305,7 @@ export function createApp(db: DB, mailer: MailDriver) {
     let trustedPlace = place === '';
     if (!trustedPlace && !to && !from && !body) {
       try {
-        trustedPlace = place === (await reversePlace(db, lat, lng, langHint ?? 'en'));
+        trustedPlace = place === (await reversePlace(db, lat, lng, langOf(b.placeLang) ?? langHint ?? 'en'));
       } catch {
         trustedPlace = false;
       }
@@ -308,6 +343,7 @@ export function createApp(db: DB, mailer: MailDriver) {
     const url = new URL(req.url ?? '/', 'http://local');
     const path = url.pathname;
     const method = req.method ?? 'GET';
+    const lang = reqLang(req);
 
     // Demo mode for recording: /?demo=1&token=ADMIN_TOKEN sets a cookie for this browser only.
     if (method === 'GET' && url.searchParams.get('demo') === '1' && url.searchParams.has('token')) {
@@ -358,7 +394,7 @@ export function createApp(db: DB, mailer: MailDriver) {
         .prepare(`SELECT * FROM offerings WHERE status = 'approved' ORDER BY created_at DESC LIMIT 6`)
         .all() as unknown as Offering[];
       json(res, 200, {
-        offerings: rows.map((o) => ({ id: o.id, kind: o.kind, lat: o.lat, lng: o.lng, place: o.place, created_at: o.created_at, title: offeringTitle(o) })),
+        offerings: rows.map((o) => ({ id: o.id, kind: o.kind, lat: o.lat, lng: o.lng, place: o.place, created_at: o.created_at, title: offeringTitle(o, lang) })),
       });
       return;
     }
@@ -371,7 +407,7 @@ export function createApp(db: DB, mailer: MailDriver) {
     if (path === '/api/place' && method === 'GET') {
       const lat = num(url.searchParams.get('lat'));
       const lng = num(url.searchParams.get('lng'));
-      if (!isValidLatLng(lat, lng)) throw new HttpError(400, 'Bad position.');
+      if (!isValidLatLng(lat, lng)) throw new HttpError(400, 'badPosition');
       const reader = { lat: num(url.searchParams.get('rlat')), lng: num(url.searchParams.get('rlng')) };
       const box = boxAround(lat as number, lng as number, PLACE_RADIUS_M);
       const rows = (db
@@ -383,17 +419,17 @@ export function createApp(db: DB, mailer: MailDriver) {
         (o) => haversineMeters(lat as number, lng as number, o.lat, o.lng) <= PLACE_RADIUS_M,
       );
       // Sealed letters stay sealed in the list, demo or not; they open on their own page.
-      json(res, 200, { offerings: rows.map((o) => publicSummary(o, reader, false)) });
+      json(res, 200, { offerings: rows.map((o) => publicSummary(o, reader, false, lang)) });
       return;
     }
 
     if (path === '/api/draft' && method === 'POST') {
       rateLimit(limits.draft, req, 'drafts');
       const b = await readJson(req);
-      if (tooLong(b.notes, LIMITS.notes)) throw new HttpError(400, `Keep the notes under ${LIMITS.notes} characters.`);
+      if (tooLong(b.notes, LIMITS.notes)) throw new HttpError(400, 'notesMax', { n: LIMITS.notes });
       const notes = cleanText(b.notes, LIMITS.notes, true);
       const to = cleanText(b.to, LIMITS.name);
-      if (notes.length < 10) throw new HttpError(400, 'Write a few memories first, even loose ones.');
+      if (notes.length < 10) throw new HttpError(400, 'notesShort');
       const draft = await draftLetter(to, notes);
       json(res, 200, { body: draft.body.slice(0, LIMITS.body), ms: draft.ms });
       return;
@@ -403,9 +439,9 @@ export function createApp(db: DB, mailer: MailDriver) {
     if (apiMatch) {
       const o = getOffering(apiMatch[1]);
       const key = url.searchParams.get('k');
-      if (!o) throw new HttpError(404, 'Nothing rests here.');
+      if (!o) throw new HttpError(404, 'nothingRests');
       const author = isAuthor(o, key);
-      if (o.status !== 'approved' && !author) throw new HttpError(404, 'Nothing rests here.');
+      if (o.status !== 'approved' && !author) throw new HttpError(404, 'nothingRests');
       const demo = isDemo(req);
 
       if (!apiMatch[2] && method === 'GET') {
@@ -413,7 +449,7 @@ export function createApp(db: DB, mailer: MailDriver) {
         // Demo only opens a sealed letter when the demo button asks for it, so the video
         // can still show the sealed state and the real distance first.
         const demoOpen = demo && url.searchParams.get('demo') === '1';
-        const summary = publicSummary(o, reader, demoOpen || author);
+        const summary = publicSummary(o, reader, demoOpen || author, lang);
         json(res, 200, {
           ...summary,
           body: summary.open ? o.body : null,
@@ -421,7 +457,7 @@ export function createApp(db: DB, mailer: MailDriver) {
           status: o.status,
           ...(author
             ? {
-                reason: o.mod_reason,
+                reason: o.status === 'rejected' || o.status === 'failed' ? authorReason(o, lang) : o.mod_reason,
                 categories: o.mod_categories ? JSON.parse(o.mod_categories) : [],
                 queueAhead: o.status === 'queued' ? queueAhead(o) : 0,
                 reviewing: guardian.currentId === o.id,
@@ -436,17 +472,17 @@ export function createApp(db: DB, mailer: MailDriver) {
         const b = await readJson(req);
         const target = langOf(b.to);
         if (o.status !== 'approved' || o.kind === 'flower' || o.kind === 'candle' || !o.body) {
-          throw new HttpError(400, 'There is nothing to translate.');
+          throw new HttpError(400, 'nothingToTranslate');
         }
-        if (!target) throw new HttpError(400, 'Unknown language.');
-        if (target === o.lang) throw new HttpError(400, 'It is already in that language.');
+        if (!target) throw new HttpError(400, 'unknownLang');
+        if (target === o.lang) throw new HttpError(400, 'alreadyInLang');
         const lock = checkLock(o, { lat: b.lat as number, lng: b.lng as number }, demo || author);
-        if (!lock.open) throw new HttpError(403, 'This letter only opens near its place.');
+        if (!lock.open) throw new HttpError(403, 'onlyNear');
         const t = await translateOffering(db, o, target);
         json(res, 200, { lang: target, body: t.body, cached: t.cached, ms: t.ms, model: config.gemmaModel });
         return;
       }
-      throw new HttpError(405, 'Not allowed.');
+      throw new HttpError(405, 'notAllowed');
     }
 
     if (path === '/api/geo/search' && method === 'GET') {
@@ -459,7 +495,7 @@ export function createApp(db: DB, mailer: MailDriver) {
         isValidLatLng(bl, bg) && bz !== undefined ? { lat: bl as number, lng: bg as number, zoom: Math.max(0, Math.min(22, bz)) } : null;
       const answer = await searchPlaces(
         url.searchParams.get('q') ?? '',
-        { lang: langOf(url.searchParams.get('lang')) ?? 'en', bias, mode },
+        { lang: langOf(url.searchParams.get('lang')) ?? lang, bias, mode },
         providers,
       );
       json(res, 200, answer);
@@ -470,13 +506,13 @@ export function createApp(db: DB, mailer: MailDriver) {
       rateLimit(limits.geo, req, 'lookups');
       const lat = num(url.searchParams.get('lat'));
       const lng = num(url.searchParams.get('lng'));
-      if (!isValidLatLng(lat, lng)) throw new HttpError(400, 'Bad position.');
+      if (!isValidLatLng(lat, lng)) throw new HttpError(400, 'badPosition');
       const name = await reversePlace(db, lat as number, lng as number, langOf(url.searchParams.get('lang')) ?? 'en');
       json(res, 200, { name });
       return;
     }
 
-    if (path.startsWith('/api/')) throw new HttpError(404, 'Not found.');
+    if (path.startsWith('/api/')) throw new HttpError(404, 'notFound');
 
     // ----- pages -----
     const letterMatch = /^\/l\/([a-z0-9]{6,20})$/.exec(path);
@@ -484,54 +520,59 @@ export function createApp(db: DB, mailer: MailDriver) {
       const o = getOffering(letterMatch[1]);
       const author = !!o && isAuthor(o, url.searchParams.get('k'));
       if (!o || (o.status !== 'approved' && !author)) {
-        html(res, 404, messagePage('Nothing rests here', '<p>This letter is not on the map. It may still be with the guardian, or it was never left.</p><p><a href="/">Back to the map</a></p>'));
+        html(res, 404, messagePage(lang, t(lang, 'notHereTitle'), `<p>${esc(t(lang, 'notHereBody'))}</p><p><a href="/">${esc(t(lang, 'backToMap'))}</a></p>`));
         return;
       }
       const demo = isDemo(req);
       const open = !o.locked;
-      html(res, 200, letterPage({ o, open, demo, author, queueAhead: o.status === 'queued' ? queueAhead(o) : 0 }));
+      html(res, 200, letterPage({ o, open, demo, author, queueAhead: o.status === 'queued' ? queueAhead(o) : 0, lang }));
       return;
     }
 
     if (path === '/unsubscribe') {
       rateLimit(limits.unsub, req, 'requests');
       let e = url.searchParams.get('e') ?? '';
-      let t = url.searchParams.get('t') ?? '';
+      let tok = url.searchParams.get('t') ?? '';
       if (method === 'POST') {
         const chunks: Buffer[] = [];
         for await (const c of req) chunks.push(c as Buffer);
         const form = new URLSearchParams(Buffer.concat(chunks).toString('utf8').slice(0, 2000));
         e = form.get('e') ?? '';
-        t = form.get('t') ?? '';
+        tok = form.get('t') ?? '';
       }
-      if (!verifyUnsubscribe(config.secret, e, t)) {
-        html(res, 400, messagePage('This link does not work', '<p>It may have been cut in two by your email app. Try opening it again from the email.</p>'));
+      if (!verifyUnsubscribe(config.secret, e, tok)) {
+        html(res, 400, messagePage(lang, t(lang, 'unsubBadTitle'), `<p>${esc(t(lang, 'unsubBadBody'))}</p>`));
         return;
       }
       if (method === 'POST') {
         blockEmail(db, e);
-        html(res, 200, messagePage('Done', '<p>GeoLetter will not write to this address again. We only kept a one-way fingerprint of it, never the address itself.</p>'));
+        html(res, 200, messagePage(lang, t(lang, 'unsubDoneTitle'), `<p>${esc(t(lang, 'unsubDoneBody'))}</p>`));
         return;
       }
       // Confirm with a button: link scanners in mail apps follow GET links on their own.
-      html(res, 200, messagePage('No more letters by email', `<p>Press the button and GeoLetter will never email this address again.</p>
-<form method="post" action="/unsubscribe"><input type="hidden" name="e" value="${esc(e)}"><input type="hidden" name="t" value="${esc(t)}">
-<button type="submit">Stop these emails</button></form>`));
+      html(res, 200, messagePage(lang, t(lang, 'unsubAskTitle'), `<p>${esc(t(lang, 'unsubAskBody'))}</p>
+<form method="post" action="/unsubscribe"><input type="hidden" name="e" value="${esc(e)}"><input type="hidden" name="t" value="${esc(tok)}">
+<button type="submit">${esc(t(lang, 'unsubButton'))}</button></form>`));
       return;
     }
 
-    if (method !== 'GET' && method !== 'HEAD') throw new HttpError(405, 'Not allowed.');
-    await serveStatic(path === '/' ? '/index.html' : path, res);
+    if (method !== 'GET' && method !== 'HEAD') throw new HttpError(405, 'notAllowed');
+    if (path === '/' || path === '/index.html') {
+      const src = await readFile(join(PUBLIC_DIR, 'index.html'), 'utf8');
+      send(res, 200, localizeIndex(src, lang), MIME['.html'], { 'Cache-Control': 'no-store', Vary: 'Cookie, Accept-Language' });
+      return;
+    }
+    await serveStatic(path, res, lang);
   }
 
-  async function serveStatic(path: string, res: ServerResponse) {
+  async function serveStatic(path: string, res: ServerResponse, lang: Lang) {
     const filePath = normalize(join(PUBLIC_DIR, decodeURIComponent(path)));
-    if (!filePath.startsWith(PUBLIC_DIR + '/')) throw new HttpError(404, 'Not found.');
+    if (!filePath.startsWith(PUBLIC_DIR + '/')) throw new HttpError(404, 'notFound');
     try {
       const s = await stat(filePath);
       if (!s.isFile()) throw new Error();
     } catch {
-      html(res, 404, messagePage('Nothing rests here', '<p><a href="/">Back to the map</a></p>'));
+      html(res, 404, messagePage(lang, t(lang, 'notHereTitle'), `<p><a href="/">${esc(t(lang, 'backToMap'))}</a></p>`));
       return;
     }
     const ext = extname(filePath);
@@ -546,9 +587,10 @@ export function createApp(db: DB, mailer: MailDriver) {
       const status = err instanceof HttpError ? err.status : 500;
       if (status === 500) console.error('[http]', req.method, req.url?.split('?')[0], err);
       if (res.headersSent) return res.end();
-      const message = err instanceof HttpError ? err.message : 'Something went wrong on our side.';
+      const lang = reqLang(req);
+      const message = err instanceof HttpError ? err.text(lang) : t(lang, 'serverError');
       if ((req.url ?? '').startsWith('/api/')) json(res, status, { error: message });
-      else html(res, status, messagePage('Something went wrong', `<p>${esc(message)}</p>`));
+      else html(res, status, messagePage(lang, t(lang, 'wrongTitle'), `<p>${esc(message)}</p>`));
     });
   });
 

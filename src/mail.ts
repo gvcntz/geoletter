@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { DB } from './db.ts';
+import { t, type Lang } from './i18n.ts';
 
 export interface MailMessage {
   to: string;
@@ -152,22 +153,25 @@ export function buildNotice(opts: {
   place: string;
   letterUrl: string;
   unsubscribeUrl: string;
+  /** The recipient's language is unknown; the letter's language is the best guess. */
+  lang?: Lang;
 }): Omit<MailMessage, 'to'> {
-  const place = opts.place.trim() || 'a place on the map';
-  const subject = `Someone left a letter for you in ${place}`.slice(0, 150);
+  const lang = opts.lang ?? 'en';
+  const place = opts.place.trim() || t(lang, 'somePlace');
+  const subject = t(lang, 'mailSubject', { place }).slice(0, 150);
   const text = [
-    `Someone left a letter for you in ${place}.`,
+    t(lang, 'mailLine', { place }),
     '',
-    `You can read it here: ${opts.letterUrl}`,
+    t(lang, 'mailReadAt', { url: opts.letterUrl }),
     '',
-    'This is the only email you will get about this letter. GeoLetter does not keep your address.',
-    `If you would rather not receive these: ${opts.unsubscribeUrl}`,
+    t(lang, 'mailOnly'),
+    t(lang, 'mailStopAt', { url: opts.unsubscribeUrl }),
   ].join('\n');
-  const html = `<div style="font-family:Georgia,serif;color:#3a2e24;background:#f5efe3;padding:24px;line-height:1.6">
-<p>Someone left a letter for you in ${escapeHtml(place)}.</p>
-<p><a href="${escapeHtml(opts.letterUrl)}" style="color:#8a5a1c">Read the letter</a></p>
-<p style="font-size:13px;color:#6b5a48">This is the only email you will get about this letter. GeoLetter does not keep your address.<br>
-<a href="${escapeHtml(opts.unsubscribeUrl)}" style="color:#6b5a48">I don't want to receive these</a></p>
+  const html = `<div lang="${lang === 'pt' ? 'pt-BR' : 'en'}" style="font-family:Georgia,serif;color:#3a2e24;background:#f5efe3;padding:24px;line-height:1.6">
+<p>${escapeHtml(t(lang, 'mailLine', { place }))}</p>
+<p><a href="${escapeHtml(opts.letterUrl)}" style="color:#8a5a1c">${escapeHtml(t(lang, 'mailRead'))}</a></p>
+<p style="font-size:13px;color:#6b5a48">${escapeHtml(t(lang, 'mailOnly'))}<br>
+<a href="${escapeHtml(opts.unsubscribeUrl)}" style="color:#6b5a48">${escapeHtml(t(lang, 'mailStop'))}</a></p>
 </div>`;
   return { subject, text, html };
 }
