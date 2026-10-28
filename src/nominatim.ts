@@ -1,53 +1,111 @@
 import type { DB } from './db.ts';
 import { config } from './config.ts';
+import { fromNominatim, fromPhoton, type Bias, type NominatimRow, type PhotonFeature, type PlaceResult, type Providers } from './places.ts';
 
-// Nominatim usage policy: identify the app, at most 1 request per second, cache results,
-// no autocomplete. The browser never calls Nominatim directly; everything goes through here.
+// Outside geocoders, both open and keyless. The browser never calls them directly.
+// Nominatim policy: identify the app, at most 1 request per second, cache, no autocomplete.
+// Photon (photon.komoot.io) is fine for search-as-you-type within fair use: we still identify
+// the app, cache every answer, merge identical requests in flight and cap the rate.
 
-const MIN_GAP_MS = 1100;
-const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-let chain: Promise<unknown> = Promise.resolve();
-let lastCall = 0;
+const DAY = 24 * 60 * 60 * 1000;
 
-function throttled<T>(fn: () => Promise<T>): Promise<T> {
-  const run = chain.then(async () => {
-    const wait = lastCall + MIN_GAP_MS - Date.now();
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-    lastCall = Date.now();
-    return fn();
-  });
-  chain = run.catch(() => undefined);
-  return run;
+function gate(minGapMs: number) {
+  let chain: Promise<unknown> = Promise.resolve();
+  let last = 0;
+  return function throttled<T>(fn: () => Promise<T>): Promise<T> {
+    const run = chain.then(async () => {
+      const wait = last + minGapMs - Date.now();
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      last = Date.now();
+      return fn();
+    });
+    chain = run.catch(() => undefined);
+    return run;
+  };
 }
 
-async function cached<T>(db: DB, key: string, fetcher: () => Promise<T>): Promise<T> {
+const nominatimGate = gate(1100);
+const photonGate = gate(250);
+const inflight = new Map<string, Promise<unknown>>();
+
+async function cached<T>(db: DB, key: string, ttlMs: number, fetcher: () => Promise<T>): Promise<T> {
   const row = db.prepare('SELECT value, created_at FROM geocache WHERE key = ?').get(key) as
     | { value: string; created_at: number }
     | undefined;
-  if (row && Date.now() - row.created_at < CACHE_TTL_MS) return JSON.parse(row.value) as T;
-  const value = await throttled(fetcher);
-  db.prepare('INSERT OR REPLACE INTO geocache (key, value, created_at) VALUES (?, ?, ?)').run(
-    key,
-    JSON.stringify(value),
-    Date.now(),
-  );
-  return value;
+  if (row && Date.now() - row.created_at < ttlMs) return JSON.parse(row.value) as T;
+  let job = inflight.get(key) as Promise<T> | undefined;
+  if (!job) {
+    job = fetcher()
+      .then((value) => {
+        db.prepare('INSERT OR REPLACE INTO geocache (key, value, created_at) VALUES (?, ?, ?)').run(
+          key,
+          JSON.stringify(value),
+          Date.now(),
+        );
+        return value;
+      })
+      .finally(() => inflight.delete(key));
+    inflight.set(key, job);
+  }
+  return job;
 }
 
-async function get(path: string, params: Record<string, string>): Promise<unknown> {
-  const url = `${config.nominatimUrl}${path}?${new URLSearchParams({ format: 'jsonv2', ...params })}`;
-  const res = await fetch(url, {
-    headers: { 'User-Agent': config.nominatimUserAgent, Referer: config.publicUrl },
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!res.ok) throw new Error(`Nominatim ${res.status}`);
+const headers = () => ({ 'User-Agent': config.nominatimUserAgent, Referer: config.publicUrl });
+
+async function getJson(url: string, timeoutMs: number): Promise<unknown> {
+  const res = await fetch(url, { headers: headers(), signal: AbortSignal.timeout(timeoutMs) });
+  if (!res.ok) throw new Error(`${new URL(url).host} ${res.status}`);
   return res.json();
 }
 
-export interface Place {
-  name: string;
-  lat: number;
-  lng: number;
+const nominatimGet = (path: string, params: Record<string, string>) =>
+  nominatimGate(() =>
+    getJson(`${config.nominatimUrl}${path}?${new URLSearchParams({ format: 'jsonv2', ...params })}`, 8000),
+  );
+
+/** Bias is rounded so neighbours in the same view share the cache. Below zoom 4 there is no bias. */
+export function biasKey(bias: Bias | null): string {
+  if (!bias || bias.zoom < 4) return 'world';
+  const step = bias.zoom >= 11 ? 0.05 : bias.zoom >= 7 ? 0.5 : 2;
+  const r = (v: number) => (Math.round(v / step) * step).toFixed(2);
+  return `${r(bias.lat)},${r(bias.lng)},${Math.min(16, Math.round(bias.zoom))}`;
+}
+
+export function makeProviders(db: DB): Providers {
+  return {
+    async photon(q, lang, bias) {
+      const plang = ['en', 'de', 'fr'].includes(lang) ? lang : 'default';
+      const key = `p:${plang}:${biasKey(bias)}:${q.toLowerCase()}`;
+      const features = await cached(db, key, 7 * DAY, async () => {
+        const params = new URLSearchParams({ q, limit: '10', lang: plang });
+        if (bias && bias.zoom >= 4) {
+          params.set('lat', bias.lat.toFixed(3));
+          params.set('lon', bias.lng.toFixed(3));
+          params.set('zoom', String(Math.min(16, Math.round(bias.zoom))));
+          params.set('location_bias_scale', '0.3');
+        }
+        const data = (await photonGate(() => getJson(`${config.photonUrl}/api/?${params}`, 4000))) as {
+          features?: PhotonFeature[];
+        };
+        return data.features ?? [];
+      });
+      return features.map((f) => fromPhoton(f, lang)).filter((r): r is PlaceResult => !!r);
+    },
+
+    async nominatim(q, lang, bias) {
+      const key = `n:${lang}:${biasKey(bias)}:${q.toLowerCase()}`;
+      const rows = await cached(db, key, 30 * DAY, async () => {
+        const params: Record<string, string> = { q, limit: '6', addressdetails: '1', 'accept-language': lang };
+        if (bias && bias.zoom >= 4) {
+          // Prefer, but do not restrict to, roughly what is on screen.
+          const span = Math.min(60, 360 / 2 ** bias.zoom) * 1.5;
+          params.viewbox = [bias.lng - span, bias.lat + span, bias.lng + span, bias.lat - span].map((v) => v.toFixed(3)).join(',');
+        }
+        return (await nominatimGet('/search', params)) as NominatimRow[];
+      });
+      return rows.map((r) => fromNominatim(r, lang)).filter((r): r is PlaceResult => !!r);
+    },
+  };
 }
 
 function shortName(r: { name?: string; display_name?: string; address?: Record<string, string> }): string {
@@ -59,29 +117,13 @@ function shortName(r: { name?: string; display_name?: string; address?: Record<s
   return (parts.join(', ') || r.display_name || '').slice(0, 120);
 }
 
-export async function searchPlaces(db: DB, q: string, lang: string): Promise<Place[]> {
-  const query = q.trim().slice(0, 120);
-  if (query.length < 2) return [];
-  const key = `s:${lang}:${query.toLowerCase()}`;
-  return cached(db, key, async () => {
-    const data = (await get('/search', { q: query, limit: '5', addressdetails: '1', 'accept-language': lang })) as {
-      lat: string;
-      lon: string;
-      name?: string;
-      display_name?: string;
-      address?: Record<string, string>;
-    }[];
-    return data.map((r) => ({ name: shortName(r), lat: Number(r.lat), lng: Number(r.lon) }));
-  });
-}
-
 export async function reversePlace(db: DB, lat: number, lng: number, lang: string): Promise<string> {
   // ~11 m grid: neighbours share the cache and Nominatim sees fewer requests.
   const rl = lat.toFixed(4);
   const rg = lng.toFixed(4);
   const key = `r:${lang}:${rl},${rg}`;
-  return cached(db, key, async () => {
-    const r = (await get('/reverse', { lat: rl, lon: rg, zoom: '17', addressdetails: '1', 'accept-language': lang })) as {
+  return cached(db, key, 30 * DAY, async () => {
+    const r = (await nominatimGet('/reverse', { lat: rl, lon: rg, zoom: '17', addressdetails: '1', 'accept-language': lang })) as {
       name?: string;
       display_name?: string;
       address?: Record<string, string>;

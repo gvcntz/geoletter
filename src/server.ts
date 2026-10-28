@@ -11,7 +11,8 @@ import {
   verifyUnsubscribe, type MailDriver,
 } from './mail.ts';
 import { RateLimiter } from './ratelimit.ts';
-import { reversePlace, searchPlaces } from './nominatim.ts';
+import { makeProviders, reversePlace } from './nominatim.ts';
+import { searchPlaces, type Bias } from './places.ts';
 import { esc, letterPage, messagePage, offeringTitle } from './html.ts';
 import { llmQueue, ollamaHealth } from './ollama.ts';
 
@@ -180,11 +181,14 @@ function num(v: string | null): number | undefined {
 
 export function createApp(db: DB, mailer: MailDriver) {
   const guardian = new Guardian(db, mailer);
+  const providers = makeProviders(db);
   const limits = {
     create: new RateLimiter(8, 10 * 60_000),
     draft: new RateLimiter(6, 10 * 60_000),
     translate: new RateLimiter(20, 10 * 60_000),
     geo: new RateLimiter(30, 60_000),
+    // Typing sends one request per pause (300 ms debounce), so this is generous on purpose.
+    suggest: new RateLimiter(90, 60_000),
     unsub: new RateLimiter(20, 10 * 60_000),
   };
 
@@ -446,9 +450,19 @@ export function createApp(db: DB, mailer: MailDriver) {
     }
 
     if (path === '/api/geo/search' && method === 'GET') {
-      rateLimit(limits.geo, req, 'searches');
-      const results = await searchPlaces(db, url.searchParams.get('q') ?? '', langOf(url.searchParams.get('lang')) ?? 'en');
-      json(res, 200, { results });
+      const mode = url.searchParams.get('mode') === 'suggest' ? 'suggest' : 'full';
+      rateLimit(mode === 'suggest' ? limits.suggest : limits.geo, req, 'searches');
+      const bl = num(url.searchParams.get('lat'));
+      const bg = num(url.searchParams.get('lng'));
+      const bz = num(url.searchParams.get('z'));
+      const bias: Bias | null =
+        isValidLatLng(bl, bg) && bz !== undefined ? { lat: bl as number, lng: bg as number, zoom: Math.max(0, Math.min(22, bz)) } : null;
+      const answer = await searchPlaces(
+        url.searchParams.get('q') ?? '',
+        { lang: langOf(url.searchParams.get('lang')) ?? 'en', bias, mode },
+        providers,
+      );
+      json(res, 200, answer);
       return;
     }
 

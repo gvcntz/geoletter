@@ -50,6 +50,8 @@ export const config = {
 
   lockRadiusDefault: int('LOCK_RADIUS_DEFAULT', 200),
   nominatimUrl: str('NOMINATIM_URL', 'https://nominatim.openstreetmap.org').replace(/\/$/, ''),
+  photonUrl: str('PHOTON_URL', 'https://photon.komoot.io').replace(/\/$/, ''),
+  // Sent to Nominatim and Photon so they know who is asking.
   nominatimUserAgent: str('NOMINATIM_USER_AGENT', 'GeoLetter/0.1 (open-source memorial map; self-hosted)'),
 };
 
